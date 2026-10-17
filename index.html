@@ -1,0 +1,2041 @@
+<html lang="zh-CN"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>UNO 派对 - 联机对战</title>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  :root {
+    --red:#FF595E; --yellow:#FFCA3A; --green:#8AC926; --blue:#1982C4; --wild:#6A4C93;
+    --bg:#FFF5E6; --surface:#fff; --text:#2D3436; --muted:#B2BEC3;
+  }
+  html,body { height:100%; overflow:hidden; }
+  body {
+    font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif;
+    background:linear-gradient(160deg,#E8F5E9 0%,#FFF3E0 100%);
+    color:var(--text); user-select:none;
+  }
+  #app { height:100vh; display:flex; flex-direction:column; }
+  .lobby { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 24px; }
+  .logo-cards { display:flex; gap:10px; margin-bottom:28px; }
+  .logo-card {
+    width:52px; height:73px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+    color:#fff; font-size:24px; font-weight:800; box-shadow:0 4px 12px rgba(0,0,0,.15);
+    animation:float 3s ease-in-out infinite;
+  }
+  .logo-card:nth-child(2){animation-delay:.3s} .logo-card:nth-child(3){animation-delay:.6s} .logo-card:nth-child(4){animation-delay:.9s}
+  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+  .lobby h1 { font-size:42px; font-weight:800; letter-spacing:3px; margin-bottom:8px; }
+  .lobby p { color:var(--muted); font-size:15px; margin-bottom:32px; }
+  .btn {
+    display:inline-flex; align-items:center; justify-content:center; padding:14px 32px; border-radius:50px;
+    font-size:17px; font-weight:600; border:none; cursor:pointer; transition:transform .15s,opacity .15s;
+  }
+  .btn:active { transform:scale(.96); }
+  .btn-primary { background:linear-gradient(135deg,#FF6B6B,#FF8E53); color:#fff; box-shadow:0 6px 16px rgba(255,107,107,.35); }
+  .btn-secondary { background:#fff; color:#FF6B6B; border:2px solid #FF6B6B; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .input {
+    width:100%; max-width:320px; height:52px; border-radius:16px; border:none; padding:0 18px;
+    font-size:17px; box-shadow:0 4px 12px rgba(0,0,0,.06); margin-bottom:16px; outline:none;
+  }
+  .lobby-hint { font-size:12px; color:#B2BEC3; margin-top:24px; text-align:center; line-height:1.8; }
+  .conn-status { position:fixed; top:12px; right:12px; font-size:12px; padding:4px 10px; border-radius:12px; background:rgba(255,255,255,.9); }
+  .conn-status.online { color:#8AC926; }
+  .conn-status.offline { color:#FF595E; }
+  .room { flex:1; display:flex; flex-direction:column; padding:20px; overflow-y:auto; }
+  .room-header { text-align:center; margin-bottom:20px; }
+  .room-header h2 { font-size:24px; margin-bottom:6px; }
+  .room-id { display:inline-block; background:#fff; padding:10px 24px; border-radius:12px; font-size:22px; font-weight:700; letter-spacing:2px; color:#FF6B6B; box-shadow:0 4px 12px rgba(0,0,0,.06); }
+  .room-id-label { font-size:12px; color:#B2BEC3; margin-bottom:4px; }
+  .player-list { flex:1; display:flex; flex-direction:column; gap:10px; margin-bottom:20px; }
+  .player-item {
+    background:#fff; border-radius:14px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between;
+    box-shadow:0 2px 8px rgba(0,0,0,.05);
+  }
+  .player-item .name { font-size:16px; font-weight:600; }
+  .player-item .tag { font-size:11px; padding:3px 10px; border-radius:10px; }
+  .tag-host { background:#FFE0B2; color:#E65100; }
+  .tag-ready { background:#C8E6C9; color:#2E7D32; }
+  .tag-wait { background:#EEEEEE; color:#9E9E9E; }
+  .room-actions { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+  .game { flex:1; display:flex; flex-direction:column; padding:10px; position:relative; }
+  .game-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .opponents { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-bottom:8px; }
+  .opponent {
+    background:rgba(255,255,255,.9); border-radius:10px; padding:6px 10px; min-width:70px; text-align:center;
+    box-shadow:0 2px 6px rgba(0,0,0,.08); position:relative;
+  }
+  .opponent.active { box-shadow:0 0 0 3px #FF6B6B; }
+  .opponent .name { font-size:11px; font-weight:600; }
+  .opponent .count { font-size:18px; font-weight:800; color:#FF6B6B; }
+  .opponent .uno-badge { position:absolute; top:-6px; right:-6px; background:#FF1744; color:#fff; font-size:10px; padding:2px 6px; border-radius:8px; font-weight:700; }
+  .center-area { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; }
+  .piles { display:flex; gap:20px; align-items:center; }
+  .pile { display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .pile-label { font-size:11px; color:#B2BEC3; }
+  .card-back {
+    width:56px; height:78px; border-radius:8px; background:linear-gradient(135deg,#6A4C93,#1982C4);
+    display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:14px;
+    box-shadow:0 4px 10px rgba(0,0,0,.2);
+  }
+  .discard-pile { position:relative; }
+  .color-indicator {
+    width:40px; height:40px; border-radius:50%; border:3px solid #fff; box-shadow:0 2px 8px rgba(0,0,0,.2);
+  }
+  .my-hand { display:flex; gap:4px; overflow-x:auto; padding:10px 0; justify-content:center; flex-wrap:nowrap; }
+  .card {
+    flex-shrink:0; width:48px; height:68px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+    color:#fff; font-size:18px; font-weight:800; cursor:pointer; transition:transform .15s; position:relative;
+    box-shadow:0 3px 8px rgba(0,0,0,.2);
+  }
+  .card.red { background:linear-gradient(135deg,#FF595E,#E53935); }
+  .card.yellow { background:linear-gradient(135deg,#FFCA3A,#FFB300); color:#5D4037; }
+  .card.green { background:linear-gradient(135deg,#8AC926,#689F38); }
+  .card.blue { background:linear-gradient(135deg,#1982C4,#1565C0); }
+  .card.wild { background:linear-gradient(135deg,#6A4C93,#512DA8); }
+  .card.playable { transform:translateY(-10px); box-shadow:0 8px 16px rgba(0,0,0,.3); }
+  .card.selected { transform:translateY(-16px); box-shadow:0 0 0 3px #FFD700, 0 8px 16px rgba(0,0,0,.3); }
+  .card.unplayable { opacity:.5; }
+  .game-actions { display:flex; gap:8px; justify-content:center; padding:8px; flex-wrap:wrap; }
+  .action-btn {
+    padding:10px 18px; border-radius:24px; font-size:14px; font-weight:600; border:none; cursor:pointer;
+    background:#fff; color:#FF6B6B; box-shadow:0 2px 6px rgba(0,0,0,.1);
+  }
+  .action-btn.uno { background:#FF1744; color:#fff; }
+  .action-btn:disabled { opacity:.4; }
+  .color-picker {
+    position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,.6); display:flex;
+    align-items:center; justify-content:center; z-index:100;
+  }
+  .color-picker-inner { background:#fff; border-radius:16px; padding:24px; display:flex; gap:14px; }
+  .color-btn { width:60px; height:60px; border-radius:50%; border:none; cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,.2); }
+  .toast {
+    position:fixed; top:20px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.8); color:#fff;
+    padding:10px 20px; border-radius:20px; font-size:14px; z-index:200; animation:fadeInOut 2s;
+  }
+  @keyframes fadeInOut { 0%{opacity:0;transform:translate(-50%,-10px)} 20%,80%{opacity:1;transform:translate(-50%,0)} 100%{opacity:0;transform:translate(-50%,-10px)} }
+  .winner-overlay {
+    position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,.7); display:flex;
+    align-items:center; justify-content:center; flex-direction:column; z-index:150;
+  }
+  .winner-overlay h2 { color:#FFD700; font-size:48px; margin-bottom:20px; }
+  .back-btn { position:fixed; top:12px; left:12px; padding:8px 14px; border-radius:20px; background:#fff; border:none; font-size:13px; cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,.1); }
+  .turn-indicator { text-align:center; font-size:13px; color:#666; margin-bottom:4px; }
+  .turn-indicator.my-turn { color:#FF6B6B; font-weight:700; }
+  .draw-stack-badge { position:absolute; top:-8px; right:-8px; background:#FF1744; color:#fff; font-size:12px; padding:2px 8px; border-radius:10px; font-weight:700; }
+</style>
+<style>.trae-browser-inspect-overlay{position:fixed;top:0;left:0;width:100%;height:100%;z-index:999997;pointer-events:auto;background:rgba(0,0,0,0)}.trae-browser-inspect-highlight-box{position:absolute;top:0;left:0;z-index:999998;display:none}.trae-browser-inspect-highlight-tag{position:absolute;left:0px;top:0px;height:18px;padding:0 6px;box-sizing:border-box;border-radius:4px;background-color:var(--vscode-icube-colorSuccessHover, "#2FB287");color:var(--vscode-icube-colorSnow, "#fff");font-size:12px;font-weight:400;display:none;align-items:center;z-index:999999}.trae-browser-inspect-highlight-box-show{display:flex}.trae-browser-inspect-select-button.trae-browser-inspect-highlight-box-show{display:flex !important}.trae-browser-inspect-select-button{position:absolute;top:0;left:0;background-color:var(--vscode-icube--bg-bg-base-secondary, "#222427");color:var(--vscode-icube--text-text-default-active, "#F5F9FE");font-size:11px;font-weight:500;border:1px solid var(--vscode-icube--border-neutral-l1, "#E0E2F217");border-radius:6px;padding:0 8px;height:32px;display:none;align-items:center;cursor:pointer;z-index:999999;gap:4px}.trae-browser-inspect-select-button svg,.trae-browser-inspect-select-button span{z-index:1}.trae-browser-inspect-select-highlight-box{background:rgba(0,0,0,0) !important}.trae-browser-inspect-select-highlight-box .trae-browser-inspect-highlight-tag{background-color:var(--vscode-icube--status-success-active, "#1E8B56")}.trae-browser-inspect-comment-card-container{position:fixed;top:0;left:0;z-index:9999999;pointer-events:auto}.trae-browser-inspect-comment-card-container .trae-browser-inspect-comment-card{display:flex;padding-top:0px !important;align-items:center;z-index:9999999 !important;background-color:var(--vscode-icube--bg-bg-menu)}*[contenteditable]{outline:none}.trae-browser-inspect-click-effect{position:fixed;width:40px;height:40px;margin-left:-20px;margin-top:-20px;border-radius:50%;background-color:var(--vscode-icube-colorSuccessHover, #2FB287);pointer-events:none;animation:trae-browser-inspect-ripple 500ms ease-out forwards;z-index:999999}@keyframes trae-browser-inspect-ripple{0%{transform:scale(0.3);opacity:.8}100%{transform:scale(2);opacity:0}}.trae-browser-inspect-ref-box{position:absolute;border:2px solid var(--vscode-icube-colorSuccessHover, "#2FB287");pointer-events:none;z-index:999998;animation:trae-browser-inspect-fadeInOut 2s ease-in-out forwards}.trae-browser-inspect-ref-label{position:absolute;top:-14px;left:0;height:14px;padding:0 4px;box-sizing:border-box;border-radius:2px;background-color:var(--vscode-icube-colorSuccessHover, "#2FB287");color:var(--vscode-icube-colorSnow, "#fff");font-size:9px;font-weight:500;display:flex;align-items:center;white-space:nowrap;z-index:999999}@keyframes trae-browser-inspect-fadeInOut{0%{opacity:0}10%{opacity:1}90%{opacity:1}100%{opacity:0}}.trae-browser-inspect-input-highlight{position:absolute;border:2px solid var(--vscode-icube-colorSuccessHover, "#2FB287");border-radius:4px;pointer-events:none;z-index:999998;box-shadow:0 0 8px var(--vscode-icube-colorSuccessHover, "#2FB287");animation:trae-browser-inspect-input-pulse 600ms ease-out forwards}@keyframes trae-browser-inspect-input-pulse{0%{opacity:0;box-shadow:0 0 0 var(--vscode-icube-colorSuccessHover, "#2FB287")}30%{opacity:1;box-shadow:0 0 12px var(--vscode-icube-colorSuccessHover, "#2FB287")}100%{opacity:0;box-shadow:0 0 0 var(--vscode-icube-colorSuccessHover, "#2FB287")}}.trae-browser-inspect-virtual-cursor{position:fixed;width:20px;height:20px;pointer-events:none;z-index:9999999;opacity:0;transition:opacity .2s ease}.trae-browser-inspect-virtual-cursor.trae-browser-inspect-cursor-visible{opacity:1}.trae-browser-inspect-virtual-cursor.trae-browser-inspect-cursor-idle{animation:trae-browser-inspect-cursor-breathe 2s ease-in-out infinite}.trae-browser-inspect-virtual-cursor svg{width:20px;height:20px;filter:drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))}@keyframes trae-browser-inspect-cursor-breathe{0%,100%{opacity:.7}50%{opacity:1}}.trae-browser-inspect-scroll-indicator{position:fixed;display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 16px;border-radius:8px;background-color:rgba(0,0,0,.7);color:#fff;font-size:13px;font-weight:500;pointer-events:none;z-index:999999;animation:trae-browser-inspect-indicator-fade 800ms ease-out forwards;backdrop-filter:blur(4px)}.trae-browser-inspect-scroll-indicator svg{width:16px;height:16px;fill:#fff}.trae-browser-inspect-scroll-indicator.trae-scroll-up{top:12px;left:50%;transform:translateX(-50%)}.trae-browser-inspect-scroll-indicator.trae-scroll-down{bottom:12px;left:50%;transform:translateX(-50%)}.trae-browser-inspect-scroll-indicator.trae-scroll-left{left:12px;top:50%;transform:translateY(-50%)}.trae-browser-inspect-scroll-indicator.trae-scroll-right{right:12px;top:50%;transform:translateY(-50%)}@keyframes trae-browser-inspect-indicator-fade{0%{opacity:0;transform:translateX(-50%) scale(0.9)}15%{opacity:1;transform:translateX(-50%) scale(1)}85%{opacity:1}100%{opacity:0}}.trae-browser-inspect-scroll-indicator.trae-scroll-left,.trae-browser-inspect-scroll-indicator.trae-scroll-right{animation-name:trae-browser-inspect-indicator-fade-y}@keyframes trae-browser-inspect-indicator-fade-y{0%{opacity:0;transform:translateY(-50%) scale(0.9)}15%{opacity:1;transform:translateY(-50%) scale(1)}85%{opacity:1}100%{opacity:0}}.trae-browser-inspect-key-badge{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);padding:8px 20px;border-radius:8px;background-color:rgba(0,0,0,.8);color:#fff;font-size:18px;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,monospace;pointer-events:none;z-index:999999;animation:trae-browser-inspect-key-pop 500ms ease-out forwards;backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,.15);box-shadow:0 4px 12px rgba(0,0,0,.3);letter-spacing:1px}@keyframes trae-browser-inspect-key-pop{0%{opacity:0;transform:translateX(-50%) translateY(10px) scale(0.9)}20%{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}80%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-10px)}}.trae-browser-inspect-step-badge{position:fixed;top:12px;left:12px;padding:6px 12px;border-radius:6px;background-color:var(--vscode-icube-colorSuccessHover, #2FB287);color:#fff;font-size:12px;font-weight:600;pointer-events:none;z-index:999999;animation:trae-browser-inspect-step-slide 600ms ease-out forwards;box-shadow:0 2px 8px rgba(47,178,135,.3);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.trae-browser-inspect-step-badge.trae-step-old{opacity:.4;transform:translateY(0)}@keyframes trae-browser-inspect-step-slide{0%{opacity:0;transform:translateX(-20px)}20%{opacity:1;transform:translateX(0)}100%{opacity:1;transform:translateX(0)}}.trae-browser-inspect-drag-trail{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999998}.trae-browser-inspect-drag-trail svg{width:100%;height:100%}.trae-browser-inspect-drag-trail .trae-drag-path{fill:none;stroke:var(--vscode-icube-colorSuccessHover, #2FB287);stroke-width:2;stroke-dasharray:8 4;opacity:.6;animation:trae-browser-inspect-dash 600ms linear forwards}.trae-browser-inspect-drag-trail .trae-drag-dot{fill:var(--vscode-icube-colorSuccessHover, #2FB287);filter:drop-shadow(0 0 4px rgba(47, 178, 135, 0.6))}.trae-browser-inspect-drag-trail .trae-drag-endpoint{fill:none;stroke:var(--vscode-icube-colorSuccessHover, #2FB287);stroke-width:2;opacity:.5}@keyframes trae-browser-inspect-dash{0%{stroke-dashoffset:200}100%{stroke-dashoffset:0}}.trae-browser-inspect-drag-trail.trae-drag-fade{animation:trae-browser-inspect-trail-fade 400ms ease-out forwards}@keyframes trae-browser-inspect-trail-fade{0%{opacity:1}100%{opacity:0}}</style><script type="module" data-trae-edit-ui="true">(async () => {
+  try {
+    const client = await import('/@vite/client');
+    const hmr = client.createHotContext('hmr-handler/fake.js');
+    hmr.on('vite:afterUpdate', window['__ICUBE_WEBVIEW_HMR_CALLBACK_1792208113298']);
+  } catch {}
+})();</script><style>.scrollbarContainer-NnjJ9T {
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+
+.shadowWrapper-gTrNks {
+  position: relative;
+}
+
+.shadowScrollContent-u7Gj1w {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.scrollbarContent-viblKM {
+  scrollbar-width: none;
+  flex-direction: column;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+}
+
+.scrollbarContent-viblKM.scrollX-pLYGVt:not(.scrollY-aHd6MU) {
+  flex-direction: row;
+}
+
+.scrollbarContent-viblKM::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbarContent-viblKM.scrollY-aHd6MU {
+  overflow-y: overlay;
+}
+
+@supports not (overflow-y: overlay) {
+  .scrollbarContent-viblKM.scrollY-aHd6MU {
+    overflow-y: auto;
+  }
+}
+
+.scrollbarContent-viblKM.scrollX-pLYGVt {
+  overflow-x: overlay;
+}
+
+@supports not (overflow-x: overlay) {
+  .scrollbarContent-viblKM.scrollX-pLYGVt {
+    overflow-x: auto;
+  }
+}
+
+.scrollbarTrack-Bfcxyx {
+  z-index: var(--custom-scrollbar-track-z-index, auto);
+  opacity: 0;
+  transition: opacity .2s;
+  position: absolute;
+}
+
+.scrollbarTrack-Bfcxyx.vertical-kDjYFh {
+  height: 100%;
+  top: 0;
+  right: 0;
+}
+
+.scrollbarTrack-Bfcxyx.horizontal-cgrfBM {
+  width: 100%;
+  bottom: 0;
+  left: 0;
+}
+
+.scrollbarTrack-Bfcxyx.visible-wPJzEH {
+  opacity: 1;
+}
+
+.scrollbarThumb-Yjg3_D {
+  background-color: var(--bg-bg-overlay-l3);
+  transition: background-color .2s;
+  position: absolute;
+}
+
+.scrollbarThumb-Yjg3_D:hover {
+  background-color: var(--bg-bg-overlay-l4);
+}
+
+.customScrollbar-t6D_3o {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color .2s;
+}
+
+.customScrollbar-t6D_3o::-webkit-scrollbar {
+  width: 4px;
+}
+
+.customScrollbar-t6D_3o::-webkit-scrollbar-track {
+  background: none;
+}
+
+.customScrollbar-t6D_3o::-webkit-scrollbar-thumb {
+  background-color: #0000;
+  border-radius: 4px;
+  transition: background-color .2s;
+}
+
+.scrollbarVisible-_1tMdm {
+  scrollbar-color: var(--bg-bg-overlay-l3) transparent;
+}
+
+.scrollbarVisible-_1tMdm::-webkit-scrollbar-thumb {
+  background-color: var(--bg-bg-overlay-l3);
+}
+
+.scrollbarVisible-_1tMdm::-webkit-scrollbar-thumb:hover {
+  background-color: var(--bg-bg-overlay-l4);
+}
+
+.shadowTop-GZm9XQ, .shadowBottom-IKOgcu {
+  pointer-events: none;
+  opacity: 0;
+  z-index: var(--z-local-overlay);
+  transition: opacity .15s;
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.shadowTop-GZm9XQ {
+  background: linear-gradient(180deg, var(--scroll-shadow-color, var(--bg-bg-base-default)) 0%, transparent 100%);
+  top: 0;
+}
+
+.shadowBottom-IKOgcu {
+  background: linear-gradient(0deg, var(--scroll-shadow-color, var(--bg-bg-base-default)) 0%, transparent 100%);
+  bottom: 0;
+}
+
+.shadowVisible-IExgHx {
+  opacity: 1;
+}
+
+</style><style>.trigger-RljaZJ {
+  display: contents;
+}
+
+.tooltip-SDUxnI {
+  z-index: var(--z-tooltip, 1300);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  white-space: normal;
+}
+
+.portal-eDqreK {
+  position: fixed;
+}
+
+.visible-Rkwtkd {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.container-BlbhO7 {
+  border-radius: var(--radius-6, 6px);
+  text-align: center;
+  justify-content: center;
+  align-items: center;
+  width: max-content;
+  padding: 6px 10px;
+  display: flex;
+  overflow-y: auto;
+}
+
+.text-fCfxTU {
+  font-family: var(--font-family-default);
+  word-break: break-word;
+  max-width: 100%;
+}
+
+.arrow-CgXpaQ {
+  position: absolute;
+  overflow: hidden;
+}
+
+.arrow-CgXpaQ svg {
+  display: block;
+}
+
+.normal-lQ5Fou .container-BlbhO7 {
+  background: var(--bg-bg-invert);
+  scrollbar-color: var(--scrollbar-thumb-invert, #fff3) var(--scrollbar-track-invert, #ffffff14);
+  border: none;
+  padding: 6px 10px;
+}
+
+.normal-lQ5Fou .container-BlbhO7::-webkit-scrollbar-track {
+  background-color: var(--scrollbar-track-invert, #ffffff14);
+}
+
+.normal-lQ5Fou .container-BlbhO7::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb-invert, #fff3);
+}
+
+.normal-lQ5Fou .container-BlbhO7::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover-invert, #ffffff4d);
+}
+
+.normal-lQ5Fou .text-fCfxTU {
+  letter-spacing: .039px;
+  color: var(--text-text-onaccent);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.normal-lQ5Fou .arrow-CgXpaQ, .normal-lQ5Fou .arrow-CgXpaQ svg {
+  width: 8px;
+  height: 4px;
+}
+
+.normal-lQ5Fou[data-side="top"] .arrow-CgXpaQ {
+  bottom: -3px;
+  left: calc(50% + var(--arrow-offset, 0px));
+  transform: translateX(-50%);
+}
+
+.normal-lQ5Fou[data-side="bottom"] .arrow-CgXpaQ {
+  top: -3px;
+  left: calc(50% + var(--arrow-offset, 0px));
+  transform: translateX(-50%)rotate(180deg);
+}
+
+.normal-lQ5Fou[data-side="left"] .arrow-CgXpaQ {
+  right: -5px;
+  top: calc(50% + var(--arrow-offset, 0px));
+  transform: translateY(-50%)rotate(-90deg);
+}
+
+.normal-lQ5Fou[data-side="right"] .arrow-CgXpaQ {
+  left: -5px;
+  top: calc(50% + var(--arrow-offset, 0px));
+  transform: translateY(-50%)rotate(90deg);
+}
+
+.mini-q0ypMR .container-BlbhO7 {
+  background: var(--bg-bg-tooltip);
+  border: 1px solid var(--border-border-neutral-l1);
+  box-shadow: var(--shadow-elevation-100-tooltip, 0px 2px 6px 0px #0003, 0px .5px 0px 0px #ffffff0f, inset 0px .5px 0px 0px #ffffff0f);
+}
+
+.mini-q0ypMR .text-fCfxTU {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-default);
+  color: var(--text-text-default);
+  line-height: 16px;
+}
+
+.mini-q0ypMR .arrow-CgXpaQ, .mini-q0ypMR .arrow-CgXpaQ svg {
+  width: 12px;
+  height: 7px;
+}
+
+.mini-q0ypMR[data-side="top"] .arrow-CgXpaQ {
+  bottom: -6px;
+  left: calc(50% + var(--arrow-offset, 0px));
+  transform: translateX(-50%);
+}
+
+.mini-q0ypMR[data-side="bottom"] .arrow-CgXpaQ {
+  top: -6px;
+  left: calc(50% + var(--arrow-offset, 0px));
+  transform: translateX(-50%)rotate(180deg);
+}
+
+.mini-q0ypMR[data-side="left"] .arrow-CgXpaQ {
+  right: -8.5px;
+  top: calc(50% + var(--arrow-offset, 0px));
+  transform: translateY(-50%)rotate(-90deg);
+}
+
+.mini-q0ypMR[data-side="right"] .arrow-CgXpaQ {
+  left: -8.5px;
+  top: calc(50% + var(--arrow-offset, 0px));
+  transform: translateY(-50%)rotate(90deg);
+}
+
+.alignLeft-fQZmyG .container-BlbhO7 {
+  text-align: left;
+  justify-content: flex-start;
+}
+
+.alignRight-0cUcce .container-BlbhO7 {
+  text-align: right;
+  justify-content: flex-end;
+}
+
+</style><style>.buttonsCard-bTXa5j {
+  padding: var(--spacer-4);
+  background: none;
+  align-items: center;
+  gap: 0;
+  display: inline-flex;
+}
+
+.actionButton-opZL8g {
+  align-items: center;
+  gap: var(--spacer-4);
+  padding: var(--spacer-4) var(--spacer-8);
+  border-radius: var(--radius-4);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+  background: none;
+  border: none;
+  display: inline-flex;
+}
+
+.actionButton-opZL8g:not(:disabled):hover {
+  background: var(--bg-bg-overlay-l2);
+}
+
+.actionButton-opZL8g:not(:disabled):active {
+  background: var(--bg-bg-overlay-l3);
+}
+
+.actionButton-opZL8g:focus-visible {
+  outline: 2px solid var(--status-primary-default);
+  outline-offset: 1px;
+}
+
+.actionButton-opZL8g:disabled {
+  cursor: not-allowed;
+  opacity: .4;
+}
+
+.sideChatTooltipTrigger-p03xXW {
+  display: inline-flex;
+}
+
+.icon-ObJEMt {
+  width: 16px;
+  height: 16px;
+  color: var(--icon-icon-default);
+  flex-shrink: 0;
+  justify-content: center;
+  align-items: center;
+  display: flex;
+}
+
+.title-GptGAg {
+  font-family: var(--font-family-default);
+  color: var(--text-text-default);
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.shortcut-nbwTG4 {
+  color: var(--icon-icon-secondary);
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  display: flex;
+}
+
+.shortcutKey-EE6xrE {
+  font-family: var(--font-family-default);
+  color: var(--icon-icon-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 12px;
+}
+
+.divider-cFGVKQ {
+  box-sizing: content-box;
+  background-clip: content-box;
+  background-color: var(--border-border-neutral-l2);
+  flex-shrink: 0;
+  width: 1px;
+  height: 12px;
+  padding: 0 6px;
+}
+
+</style><style>.commentEditorCard-Un4Xaa {
+  box-sizing: border-box;
+  width: 320px;
+  padding: var(--spacing-sm);
+  gap: var(--spacing-xs);
+  flex-direction: column;
+  display: flex;
+}
+
+.inputContainer-ObHdij {
+  align-items: center;
+  gap: var(--spacing-sm);
+  display: flex;
+}
+
+.textarea-ggj4j6 {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 0 var(--spacer-2);
+  font-family: var(--font-family-default);
+  font-size: var(--font-size-regular, 13px);
+  font-weight: var(--font-weight-default, 400);
+  color: var(--text-text-default);
+  resize: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-border-neutral-l2) transparent;
+  background: none;
+  border: none;
+  outline: none;
+  flex: 1;
+  max-height: 140px;
+  line-height: 20px;
+  overflow-y: auto;
+}
+
+.textarea-ggj4j6::placeholder {
+  color: var(--text-text-tertiary);
+}
+
+.actionBar-u_t8vc {
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+  display: flex;
+}
+
+.actionBar-u_t8vc .deleteButton-HP_HE1 {
+  color: var(--status-error-default);
+}
+
+.actionBar-u_t8vc .deleteButton-HP_HE1:hover:not(:disabled), .actionBar-u_t8vc .deleteButton-HP_HE1:active:not(:disabled) {
+  background: var(--status-error-surface-l1);
+  color: var(--status-error-default);
+}
+
+.actionBar-u_t8vc .submitButton-BqyEd7 {
+  background: var(--vscode-button-background, var(--bg-bg-invert));
+  color: var(--vscode-button-foreground, var(--icon-icon-onaccent));
+}
+
+.actionBar-u_t8vc .submitButton-BqyEd7:hover:not(:disabled), .actionBar-u_t8vc .submitButton-BqyEd7:active:not(:disabled) {
+  background: var(--vscode-button-hoverBackground, var(--bg-bg-invert-hover));
+}
+
+.actionBar-u_t8vc .submitButton-BqyEd7:disabled {
+  background: var(--vscode-button-background, var(--bg-bg-invert-disabled));
+  color: var(--vscode-button-foreground, var(--icon-icon-disabled));
+  opacity: .5;
+}
+
+.actionBar-u_t8vc .deleteButton-HP_HE1:focus-visible, .actionBar-u_t8vc .submitButton-BqyEd7:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder, var(--status-primary-default));
+  outline-offset: 1px;
+}
+
+.limitWarning-Hocj0v {
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--status-warning-default);
+  user-select: none;
+  display: flex;
+}
+
+.limitText-hBXEaq {
+  font-family: var(--font-family-default);
+  font-size: var(--font-size-md);
+  line-height: 18px;
+}
+
+</style><style>.iconButton-Q3VY7z {
+  border-radius: var(--radius-6, 4px);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+  border: none;
+  outline: none;
+  justify-content: center;
+  align-items: center;
+  display: inline-flex;
+}
+
+.icon-_l_X9w {
+  flex: none;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  display: flex;
+}
+
+.small-OBA1vF {
+  width: 20px;
+  height: 20px;
+  font-size: 14px;
+}
+
+.default-FjFsr_ {
+  width: 24px;
+  height: 24px;
+  font-size: 16px;
+}
+
+.large-DxPYCN {
+  width: 28px;
+  height: 28px;
+  font-size: 16px;
+}
+
+.xlarge-5fqXEB {
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+}
+
+.primary-jxayJO {
+  background: var(--bg-bg-invert);
+  color: var(--icon-icon-onaccent);
+}
+
+.primary-jxayJO:hover:not(:disabled) {
+  background: var(--bg-bg-invert-hover);
+}
+
+.primary-jxayJO:active:not(:disabled) {
+  background: var(--bg-bg-invert-active);
+}
+
+.primary-jxayJO:disabled {
+  background: var(--bg-bg-invert-disabled);
+  color: var(--icon-icon-disabled);
+  cursor: not-allowed;
+}
+
+.secondary-Joyuiv {
+  background: var(--bg-bg-overlay-l3);
+  color: var(--icon-icon-default);
+}
+
+.secondary-Joyuiv:hover:not(:disabled) {
+  background: var(--bg-bg-overlay-l4);
+}
+
+.secondary-Joyuiv:active:not(:disabled) {
+  background: var(--bg-bg-overlay-l2);
+}
+
+.secondary-Joyuiv:disabled {
+  background: var(--bg-bg-overlay-l1);
+  color: var(--icon-icon-disabled);
+  cursor: not-allowed;
+}
+
+.tertiary-kDbrxb {
+  color: var(--icon-icon-default);
+  background: none;
+}
+
+.tertiary-kDbrxb:hover:not(:disabled) {
+  background: var(--bg-bg-overlay-l2);
+  color: var(--icon-icon-default-hover);
+}
+
+.tertiary-kDbrxb:active:not(:disabled) {
+  background: var(--bg-bg-overlay-l1);
+  color: var(--icon-icon-default-active);
+}
+
+.tertiary-kDbrxb:disabled {
+  color: var(--icon-icon-disabled);
+  cursor: not-allowed;
+}
+
+.quaternary-UxO71r {
+  color: var(--icon-icon-tertiary);
+  background: none;
+}
+
+.quaternary-UxO71r:hover:not(:disabled), .quaternary-UxO71r:active:not(:disabled) {
+  color: var(--icon-icon-secondary-hover);
+  background: none;
+}
+
+.quaternary-UxO71r:disabled {
+  color: var(--icon-icon-disabled);
+  cursor: not-allowed;
+}
+
+</style><style>.previewCommentCardContainer-HEkpU8 {
+  border-radius: var(--radius-8);
+  background: var(--bg-bg-menu);
+  border: 1px solid var(--border-border-neutral-l1);
+  transition: width .25s cubic-bezier(.4, 0, .2, 1), height .25s cubic-bezier(.4, 0, .2, 1);
+  display: inline-block;
+  overflow: hidden;
+  box-shadow: 0 2px 6px #0003, 0 .5px #ffffff0f, inset 0 .5px #ffffff0f;
+}
+
+.previewCommentCardContent-ELaLah {
+  width: max-content;
+  position: relative;
+}
+
+.previewCommentCardFadeEnter-OMhMD9 {
+  opacity: 0;
+}
+
+.previewCommentCardFadeEnterActive-Eacuvn {
+  opacity: 1;
+  transition: opacity .2s ease-in;
+}
+
+.previewCommentCardFadeExit-ms9vgc {
+  opacity: 1;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.previewCommentCardFadeExitActive-vyQTsd {
+  opacity: 0;
+  transition: opacity .15s ease-out;
+}
+
+.previewCommentCardSuccessCard-PWnm2o {
+  white-space: nowrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  display: flex;
+}
+
+.previewCommentCardSuccessIcon-Oht9Ir {
+  width: 16px;
+  height: 16px;
+  color: var(--status-success-default);
+  justify-content: center;
+  align-items: center;
+  display: flex;
+}
+
+.previewCommentCardSuccessText-s40BWG {
+  font-family: var(--font-family-default);
+  color: var(--text-text-default);
+  user-select: none;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+</style><style id="trae-browser-inspect-drag-styles" data-trae-edit-ui="true">
+            .trae-browser-inspect-draggable {
+                cursor: grab !important;
+            }
+            .trae-browser-inspect-dragging-active {
+                cursor: grabbing !important;
+            }
+            .trae-browser-inspect-drag-ghost {
+                opacity: 0.7;
+                pointer-events: none;
+                position: fixed;
+                z-index: 999998;
+                transform: scale(0.95);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                transition: none;
+            }
+            .trae-browser-inspect-element-placeholder {
+                opacity: 0.3;
+            }
+        </style><style id="icube-theme-variables" data-trae-edit-ui="true">:root {--vscode-foreground: #d1d3db;--vscode-disabledForeground: #666b75;--vscode-errorForeground: #cc4b53;--vscode-descriptionForeground: #9599a6;--vscode-icon-foreground: #9599a6;--vscode-focusBorder: rgba(0, 0, 0, 0);--vscode-textLink-foreground: #dadde5;--vscode-textLink-activeForeground: #979aa4;--vscode-textSeparator-foreground: rgba(255, 255, 255, 0.18);--vscode-textPreformat-foreground: #d7ba7d;--vscode-textPreformat-background: rgba(255, 255, 255, 0.1);--vscode-textBlockQuote-background: #222222;--vscode-textBlockQuote-border: rgba(0, 122, 204, 0.5);--vscode-textCodeBlock-background: rgba(10, 10, 10, 0.4);--vscode-sash-hoverBorder: #32f08c;--vscode-badge-background: #4d4d4d;--vscode-badge-foreground: #ffffff;--vscode-activityWarningBadge-foreground: #ffffff;--vscode-activityWarningBadge-background: #b27c00;--vscode-activityErrorBadge-foreground: #000000;--vscode-activityErrorBadge-background: #f14c4c;--vscode-scrollbar-shadow: #000000;--vscode-scrollbarSlider-background: rgba(121, 121, 121, 0.4);--vscode-scrollbarSlider-hoverBackground: rgba(100, 100, 100, 0.7);--vscode-scrollbarSlider-activeBackground: rgba(191, 191, 191, 0.4);--vscode-progressBar-background: #387bff;--vscode-chart-line: #236b8e;--vscode-chart-axis: rgba(191, 191, 191, 0.4);--vscode-chart-guide: rgba(191, 191, 191, 0.2);--vscode-editor-background: #181d27;--vscode-editor-foreground: #d1d3db;--vscode-editorStickyScroll-background: #181d27;--vscode-editorStickyScrollGutter-background: #181d27;--vscode-editorStickyScrollHover-background: #282b3a;--vscode-editorStickyScroll-shadow: #000000;--vscode-editorWidget-background: #252526;--vscode-editorWidget-foreground: #d1d3db;--vscode-editorWidget-border: #454545;--vscode-editorError-foreground: #f14c4c;--vscode-editorWarning-foreground: #cca700;--vscode-editorInfo-foreground: #59a4f9;--vscode-editorHint-foreground: rgba(238, 238, 238, 0.7);--vscode-editorLink-activeForeground: #4e94ce;--vscode-editor-selectionBackground: rgba(53, 121, 255, 0.28);--vscode-editor-inactiveSelectionBackground: #3a3d41;--vscode-editor-selectionHighlightBackground: rgba(173, 214, 255, 0.15);--vscode-editor-compositionBorder: #ffffff;--vscode-editor-findMatchBackground: #515c6a;--vscode-editor-findMatchHighlightBackground: rgba(218, 221, 229, 0.32);--vscode-editor-findRangeHighlightBackground: rgba(58, 61, 65, 0.4);--vscode-editor-hoverHighlightBackground: rgba(38, 79, 120, 0.25);--vscode-editorHoverWidget-background: #252526;--vscode-editorHoverWidget-foreground: #d1d3db;--vscode-editorHoverWidget-border: #454545;--vscode-editorHoverWidget-statusBarBackground: #2c2c2d;--vscode-editorInlayHint-foreground: #969696;--vscode-editorInlayHint-background: rgba(77, 77, 77, 0.1);--vscode-editorInlayHint-typeForeground: #969696;--vscode-editorInlayHint-typeBackground: rgba(77, 77, 77, 0.1);--vscode-editorInlayHint-parameterForeground: #969696;--vscode-editorInlayHint-parameterBackground: rgba(77, 77, 77, 0.1);--vscode-editorLightBulb-foreground: #ffcc00;--vscode-editorLightBulbAutoFix-foreground: #75beff;--vscode-editorLightBulbAi-foreground: #ffcc00;--vscode-editor-snippetTabstopHighlightBackground: rgba(124, 124, 124, 0.3);--vscode-editor-snippetFinalTabstopHighlightBorder: #525252;--vscode-diffEditor-insertedTextBackground: rgba(0, 165, 110, 0.28);--vscode-diffEditor-removedTextBackground: rgba(208, 42, 35, 0.28);--vscode-diffEditor-insertedLineBackground: rgba(0, 165, 110, 0.28);--vscode-diffEditor-removedLineBackground: rgba(208, 42, 35, 0.28);--vscode-diffEditor-diagonalFill: rgba(204, 204, 204, 0.2);--vscode-diffEditor-unchangedRegionBackground: #181d27;--vscode-diffEditor-unchangedRegionForeground: #d1d3db;--vscode-diffEditor-unchangedCodeBackground: rgba(116, 116, 116, 0.16);--vscode-widget-shadow: rgba(0, 0, 0, 0.16);--vscode-widget-border: #303031;--vscode-toolbar-hoverBackground: rgba(176, 192, 244, 0.06);--vscode-toolbar-activeBackground: rgba(176, 192, 244, 0.09);--vscode-breadcrumb-foreground: rgba(209, 211, 219, 0.8);--vscode-breadcrumb-background: #181d27;--vscode-breadcrumb-focusForeground: #e9eaee;--vscode-breadcrumb-activeSelectionForeground: #e9eaee;--vscode-breadcrumbPicker-background: #2e3743;--vscode-merge-currentHeaderBackground: rgba(64, 200, 174, 0.5);--vscode-merge-currentContentBackground: rgba(64, 200, 174, 0.2);--vscode-merge-incomingHeaderBackground: rgba(64, 166, 255, 0.5);--vscode-merge-incomingContentBackground: rgba(64, 166, 255, 0.2);--vscode-merge-commonHeaderBackground: rgba(96, 96, 96, 0.4);--vscode-merge-commonContentBackground: rgba(96, 96, 96, 0.16);--vscode-editorOverviewRuler-currentContentForeground: rgba(64, 200, 174, 0.5);--vscode-editorOverviewRuler-incomingContentForeground: rgba(64, 166, 255, 0.5);--vscode-editorOverviewRuler-commonContentForeground: rgba(96, 96, 96, 0.4);--vscode-editorOverviewRuler-findMatchForeground: rgba(209, 134, 22, 0.49);--vscode-editorOverviewRuler-selectionHighlightForeground: rgba(160, 160, 160, 0.8);--vscode-problemsErrorIcon-foreground: #f14c4c;--vscode-problemsWarningIcon-foreground: #cca700;--vscode-problemsInfoIcon-foreground: #59a4f9;--vscode-minimap-findMatchHighlight: #d18616;--vscode-minimap-selectionOccurrenceHighlight: #676767;--vscode-minimap-selectionHighlight: #264f78;--vscode-minimap-infoHighlight: #59a4f9;--vscode-minimap-warningHighlight: #cca700;--vscode-minimap-errorHighlight: rgba(255, 18, 18, 0.7);--vscode-minimap-foregroundOpacity: #000000;--vscode-minimapSlider-background: rgba(121, 121, 121, 0.2);--vscode-minimapSlider-hoverBackground: rgba(100, 100, 100, 0.35);--vscode-minimapSlider-activeBackground: rgba(191, 191, 191, 0.2);--vscode-charts-foreground: #d1d3db;--vscode-charts-lines: rgba(209, 211, 219, 0.5);--vscode-charts-red: #f14c4c;--vscode-charts-blue: #59a4f9;--vscode-charts-yellow: #cca700;--vscode-charts-orange: #d18616;--vscode-charts-green: #89d185;--vscode-charts-purple: #b180d7;--vscode-input-background: rgba(176, 192, 244, 0.04);--vscode-input-foreground: #d1d3db;--vscode-inputOption-activeBorder: rgba(176, 192, 244, 0.18);--vscode-inputOption-hoverBackground: rgba(90, 93, 94, 0.5);--vscode-inputOption-activeBackground: rgba(0, 0, 0, 0);--vscode-inputOption-activeForeground: #ffffff;--vscode-input-placeholderForeground: #9599a6;--vscode-inputValidation-infoBackground: #063b49;--vscode-inputValidation-infoBorder: #007acc;--vscode-inputValidation-warningBackground: #352a05;--vscode-inputValidation-warningBorder: #dc8730;--vscode-inputValidation-errorBackground: #5a1d1d;--vscode-inputValidation-errorBorder: #f65a5a;--vscode-dropdown-background: #3c3c3c;--vscode-dropdown-foreground: #f0f0f0;--vscode-dropdown-border: #3c3c3c;--vscode-button-foreground: #000000;--vscode-button-separator: rgba(13, 14, 15, 0.18);--vscode-button-background: #d1d3db;--vscode-button-hoverBackground: #edeff2;--vscode-button-secondaryForeground: #ffffff;--vscode-button-secondaryBackground: #3a3d41;--vscode-button-secondaryHoverBackground: #45494e;--vscode-radio-activeForeground: #ffffff;--vscode-radio-activeBackground: rgba(0, 0, 0, 0);--vscode-radio-activeBorder: rgba(176, 192, 244, 0.18);--vscode-radio-inactiveBorder: rgba(255, 255, 255, 0.2);--vscode-radio-inactiveHoverBackground: rgba(90, 93, 94, 0.5);--vscode-checkbox-background: #3c3c3c;--vscode-checkbox-selectBackground: #252526;--vscode-checkbox-foreground: #f0f0f0;--vscode-checkbox-border: #6b6b6b;--vscode-checkbox-selectBorder: #9599a6;--vscode-checkbox-disabled.background: #777777;--vscode-checkbox-disabled.foreground: #b4b4b4;--vscode-keybindingLabel-background: rgba(128, 128, 128, 0.17);--vscode-keybindingLabel-foreground: #cccccc;--vscode-keybindingLabel-border: rgba(51, 51, 51, 0.6);--vscode-keybindingLabel-bottomBorder: rgba(68, 68, 68, 0.6);--vscode-list-focusOutline: rgba(0, 0, 0, 0);--vscode-list-activeSelectionBackground: rgba(176, 192, 244, 0.09);--vscode-list-activeSelectionForeground: #f5f9fe;--vscode-list-activeSelectionIconForeground: #ffffff;--vscode-list-inactiveSelectionBackground: rgba(176, 192, 244, 0.06);--vscode-list-inactiveSelectionForeground: #f5f9fe;--vscode-list-hoverBackground: rgba(176, 192, 244, 0.06);--vscode-list-dropBackground: rgba(176, 192, 244, 0.06);--vscode-list-dropBetweenBackground: #9599a6;--vscode-list-highlightForeground: #dadde5;--vscode-list-focusHighlightForeground: #dadde5;--vscode-list-invalidItemForeground: #b89500;--vscode-list-errorForeground: #cc4b53;--vscode-list-warningForeground: #cca700;--vscode-listFilterWidget-background: #232a35;--vscode-listFilterWidget-outline: rgba(0, 0, 0, 0);--vscode-listFilterWidget-noMatchesOutline: #be1100;--vscode-listFilterWidget-shadow: rgba(0, 0, 0, 0.16);--vscode-list-filterMatchBackground: rgba(218, 221, 229, 0.32);--vscode-list-deemphasizedForeground: #8c8c8c;--vscode-tree-indentGuidesStroke: rgba(176, 192, 244, 0.08);--vscode-tree-inactiveIndentGuidesStroke: rgba(221, 226, 233, 0.08);--vscode-tree-tableColumnsBorder: rgba(204, 204, 204, 0.13);--vscode-tree-tableOddRowsBackground: rgba(209, 211, 219, 0.04);--vscode-editorActionList-background: #252526;--vscode-editorActionList-foreground: #d1d3db;--vscode-editorActionList-focusForeground: #f5f9fe;--vscode-editorActionList-focusBackground: rgba(176, 192, 244, 0.09);--vscode-menu-border: rgba(176, 192, 244, 0.08);--vscode-menu-foreground: #d1d3db;--vscode-menu-background: #2e3743;--vscode-menu-selectionForeground: #f5f9fe;--vscode-menu-selectionBackground: rgba(176, 192, 244, 0.09);--vscode-menu-separatorBackground: rgba(176, 192, 244, 0.08);--vscode-quickInput-background: #1e242f;--vscode-quickInput-foreground: #d1d3db;--vscode-quickInputTitle-background: #232a35;--vscode-pickerGroup-foreground: #d1d3db;--vscode-pickerGroup-border: rgba(176, 192, 244, 0.08);--vscode-quickInputList-focusForeground: #f5f9fe;--vscode-quickInputList-focusIconForeground: #ffffff;--vscode-quickInputList-focusBackground: rgba(176, 192, 244, 0.09);--vscode-search-resultsInfoForeground: #9599a6;--vscode-searchEditor-findMatchBackground: rgba(218, 221, 229, 0.21);--vscode-tab-activeBackground: rgba(176, 192, 244, 0.06);--vscode-tab-unfocusedActiveBackground: rgba(176, 192, 244, 0.06);--vscode-tab-inactiveBackground: #17191a;--vscode-tab-unfocusedInactiveBackground: #17191a;--vscode-tab-activeForeground: #f5f9fe;--vscode-tab-inactiveForeground: #9599a6;--vscode-tab-unfocusedActiveForeground: #d1d3db;--vscode-tab-unfocusedInactiveForeground: rgba(149, 153, 166, 0.5);--vscode-tab-border: rgba(176, 192, 244, 0.08);--vscode-tab-lastPinnedBorder: rgba(204, 204, 204, 0.2);--vscode-tab-activeBorder: #181d27;--vscode-tab-unfocusedActiveBorder: rgba(24, 29, 39, 0.5);--vscode-tab-activeBorderTop: #ffffff;--vscode-tab-unfocusedActiveBorderTop: rgba(255, 255, 255, 0.5);--vscode-tab-selectedBorderTop: #ffffff;--vscode-tab-selectedBackground: #222222;--vscode-tab-selectedForeground: rgba(255, 255, 255, 0.63);--vscode-tab-dragAndDropBorder: #f5f9fe;--vscode-tab-activeModifiedBorder: #3399cc;--vscode-tab-inactiveModifiedBorder: rgba(51, 153, 204, 0.5);--vscode-tab-unfocusedActiveModifiedBorder: rgba(51, 153, 204, 0.5);--vscode-tab-unfocusedInactiveModifiedBorder: rgba(51, 153, 204, 0.25);--vscode-editorPane-background: #181d27;--vscode-editorGroupHeader-tabsBackground: #17191a;--vscode-editorGroupHeader-tabsBorder: rgba(176, 192, 244, 0.08);--vscode-editorGroupHeader-noTabsBackground: #181d27;--vscode-editorGroup-border: #444444;--vscode-editorGroup-dropBackground: rgba(53, 121, 255, 0.2);--vscode-editorGroup-dropIntoPromptForeground: #d1d3db;--vscode-editorGroup-dropIntoPromptBackground: #252526;--vscode-sideBySideEditor-horizontalBorder: #444444;--vscode-sideBySideEditor-verticalBorder: #444444;--vscode-panel-background: #181d27;--vscode-panel-border: rgba(128, 128, 128, 0.35);--vscode-panelTitle-activeForeground: #f5f9fe;--vscode-panelTitle-inactiveForeground: #9599a6;--vscode-panelTitle-activeBorder: #f5f9fe;--vscode-panel-dropBorder: #f5f9fe;--vscode-panelSection-dropBackground: rgba(53, 121, 255, 0.2);--vscode-panelSectionHeader-background: #181d27;--vscode-panelSectionHeader-foreground: #f5f9fe;--vscode-panelSectionHeader-border: rgba(176, 192, 244, 0.12);--vscode-panelSection-border: rgba(128, 128, 128, 0.35);--vscode-panelStickyScroll-background: #181d27;--vscode-panelStickyScroll-shadow: #000000;--vscode-banner-background: rgba(176, 192, 244, 0.09);--vscode-banner-foreground: #f5f9fe;--vscode-banner-iconForeground: #59a4f9;--vscode-statusBar-foreground: #ffffff;--vscode-statusBar-noFolderForeground: #ffffff;--vscode-statusBar-background: rgba(0, 0, 0, 0);--vscode-statusBar-noFolderBackground: rgba(0, 0, 0, 0);--vscode-statusBar-focusBorder: #ffffff;--vscode-statusBarItem-activeBackground: rgba(255, 255, 255, 0.18);--vscode-statusBarItem-focusBorder: #ffffff;--vscode-statusBarItem-hoverBackground: rgba(255, 255, 255, 0.12);--vscode-statusBarItem-hoverForeground: #ffffff;--vscode-statusBarItem-compactHoverBackground: rgba(255, 255, 255, 0.12);--vscode-statusBarItem-prominentForeground: #ffffff;--vscode-statusBarItem-prominentBackground: rgba(0, 0, 0, 0.5);--vscode-statusBarItem-prominentHoverForeground: #ffffff;--vscode-statusBarItem-prominentHoverBackground: rgba(255, 255, 255, 0.12);--vscode-statusBarItem-errorBackground: #82252b;--vscode-statusBarItem-errorForeground: #ffffff;--vscode-statusBarItem-errorHoverForeground: #ffffff;--vscode-statusBarItem-errorHoverBackground: rgba(255, 255, 255, 0.12);--vscode-statusBarItem-warningBackground: #7a6400;--vscode-statusBarItem-warningForeground: #ffffff;--vscode-statusBarItem-warningHoverForeground: #ffffff;--vscode-statusBarItem-warningHoverBackground: rgba(255, 255, 255, 0.12);--vscode-activityBar-background: #232a35;--vscode-activityBar-foreground: #f5f9fe;--vscode-activityBar-inactiveForeground: #9599a6;--vscode-activityBar-activeBorder: #f5f9fe;--vscode-activityBar-dropBorder: #f5f9fe;--vscode-activityBarBadge-background: #387bff;--vscode-activityBarBadge-foreground: #ffffff;--vscode-activityBarTop-foreground: #e7e7e7;--vscode-activityBarTop-activeBorder: #e7e7e7;--vscode-activityBarTop-inactiveForeground: rgba(231, 231, 231, 0.6);--vscode-activityBarTop-dropBorder: #e7e7e7;--vscode-profileBadge-background: #4d4d4d;--vscode-profileBadge-foreground: #ffffff;--vscode-statusBarItem-remoteBackground: #16825d;--vscode-statusBarItem-remoteForeground: #ffffff;--vscode-statusBarItem-remoteHoverForeground: #ffffff;--vscode-statusBarItem-remoteHoverBackground: rgba(255, 255, 255, 0.12);--vscode-statusBarItem-offlineBackground: #6c1717;--vscode-statusBarItem-offlineForeground: #ffffff;--vscode-statusBarItem-offlineHoverForeground: #ffffff;--vscode-statusBarItem-offlineHoverBackground: rgba(255, 255, 255, 0.12);--vscode-extensionBadge-remoteBackground: #387bff;--vscode-extensionBadge-remoteForeground: #ffffff;--vscode-sideBar-background: #181d27;--vscode-sideBarTitle-background: #181d27;--vscode-sideBarTitle-foreground: #bbbbbb;--vscode-sideBar-dropBackground: rgba(53, 121, 255, 0.2);--vscode-sideBarSectionHeader-background: #181d27;--vscode-sideBarSectionHeader-foreground: #d1d3db;--vscode-sideBarSectionHeader-border: rgba(176, 192, 244, 0.12);--vscode-sideBarActivityBarTop-border: rgba(176, 192, 244, 0.12);--vscode-sideBarStickyScroll-background: #181d27;--vscode-sideBarStickyScroll-shadow: #000000;--vscode-titleBar-activeForeground: #9599a6;--vscode-titleBar-inactiveForeground: rgba(149, 153, 166, 0.6);--vscode-titleBar-activeBackground: #232a35;--vscode-titleBar-inactiveBackground: #232a35;--vscode-menubar-selectionForeground: #9599a6;--vscode-menubar-selectionBackground: rgba(176, 192, 244, 0.06);--vscode-commandCenter-foreground: #9599a6;--vscode-commandCenter-activeForeground: #9599a6;--vscode-commandCenter-inactiveForeground: rgba(149, 153, 166, 0.6);--vscode-commandCenter-background: rgba(176, 192, 244, 0.06);--vscode-commandCenter-activeBackground: rgba(255, 255, 255, 0.08);--vscode-commandCenter-border: rgba(176, 192, 244, 0.12);--vscode-commandCenter-activeBorder: rgba(176, 192, 244, 0.18);--vscode-commandCenter-inactiveBorder: rgba(176, 192, 244, 0.08);--vscode-notificationCenter-border: #303031;--vscode-notificationToast-border: #303031;--vscode-notifications-foreground: #d1d3db;--vscode-notifications-background: #2e3743;--vscode-notificationLink-foreground: #dadde5;--vscode-notificationCenterHeader-background: #3c4857;--vscode-notifications-border: #3c4857;--vscode-notificationsErrorIcon-foreground: #f65a5a;--vscode-notificationsWarningIcon-foreground: #dc8730;--vscode-notificationsInfoIcon-foreground: #387bff;--vscode-icube-colorSnow: #ffffff;--vscode-icube-colorBlack: #000000;--vscode-icube-colorSnowDisable: rgba(255, 255, 255, 0.3);--vscode-icube-modalOverlay: rgba(0, 0, 0, 0.4);--vscode-icube-colorBg1: #181d27;--vscode-icube-colorBg2: #232a35;--vscode-icube-colorBg3: #2e3743;--vscode-icube-colorBg4: #262626;--vscode-icube-diffColorBg3: rgba(40, 42, 46, 0.35);--vscode-icube-colorBgCode: #181d27;--vscode-icube-colorBgTr0: rgba(176, 192, 244, 0.04);--vscode-icube-colorBtnHover: rgba(176, 192, 244, 0.06);--vscode-icube-colorBg5: rgba(194, 202, 242, 0.1);--vscode-icube-colorBtnHover2: rgba(176, 192, 244, 0.09);--vscode-icube-colorBtnTransparent3: rgba(176, 192, 244, 0.13);--vscode-icube-colorBlend: rgba(194, 202, 242, 0.15);--vscode-icube-colorTransparent: rgba(255, 255, 255, 0);--vscode-icube-colorWidgetShadow: rgba(0, 0, 0, 0.16);--vscode-icube-colorWidgetShadow2: rgba(0, 0, 0, 0.16);--vscode-icube-colorWidgetShadow3: rgba(0, 0, 0, 0.2);--vscode-icube-colorDefaultText: #d1d3db;--vscode-icube-colorHighlightText: #f5f9fe;--vscode-icube-colorGrayText: #9599a6;--vscode-icube-colorGrayText2: #737780;--vscode-icube-colorDisableText: #666b75;--vscode-icube-colorBlackText: #111314;--vscode-icube-colorBlackText1: #000000;--vscode-icube-colorBlackText2: #ffffff;--vscode-icube-colorDefaultAvatar: #dadde6;--vscode-icube-colorDefaultAvatarBackground: #24262b;--vscode-icube-modalLayoutBg: rgba(0, 0, 0, 0.4);--vscode-icube-colorIcon: #8d93a6;--vscode-icube-colorCodeCodeInstruction: #f0d8ff;--vscode-icube-colorLine1: rgba(176, 192, 244, 0.08);--vscode-icube-colorLine2: rgba(176, 192, 244, 0.12);--vscode-icube-colorLine3: rgba(176, 192, 244, 0.18);--vscode-icube-colorBrand: #dadde5;--vscode-icube-colorBrandHover: #edeff2;--vscode-icube-colorBrandActive: #979aa4;--vscode-icube-colorBrandTransparent: rgba(176, 192, 244, 0.06);--vscode-icube-colorBrandTransparent2: rgba(176, 192, 244, 0.09);--vscode-icube-colorBrandTransparent3: rgba(176, 192, 244, 0.13);--vscode-icube-colorStatusRegular: #387bff;--vscode-icube-colorStatusRegularHover: #4c88ff;--vscode-icube-colorStatusRegularActive: #1759dd;--vscode-icube-colorStatusRegularTransparent: rgba(53, 121, 255, 0.18);--vscode-icube-colorStatusRegularTransparent2: rgba(53, 121, 255, 0.28);--vscode-icube-colorStatusRegularTransparent3: rgba(53, 121, 255, 0.36);--vscode-icube-colorSuccess: #33c192;--vscode-icube-colorSuccessHover: #5ed4ad;--vscode-icube-colorSuccessActive: #27b082;--vscode-icube-colorSuccessTransparent: rgba(0, 165, 110, 0.18);--vscode-icube-colorSuccessTransparent2: rgba(0, 165, 110, 0.28);--vscode-icube-colorSuccessTransparent3: rgba(0, 165, 110, 0.36);--vscode-icube-colorError: #f65a5a;--vscode-icube-colorErrorHover: #f86262;--vscode-icube-colorErrorActive: #ad2020;--vscode-icube-colorErrorTransparent: rgba(208, 42, 35, 0.18);--vscode-icube-colorErrorTransparent2: rgba(208, 42, 35, 0.28);--vscode-icube-colorErrorTransparent3: rgba(208, 42, 35, 0.36);--vscode-icube-colorWarning: #dc8730;--vscode-icube-colorWarningHover: #f1a03f;--vscode-icube-colorWarningActive: #c0701d;--vscode-icube-colorWarningTransparent: rgba(220, 135, 48, 0.16);--vscode-icube-colorWarningTransparent2: rgba(220, 135, 48, 0.28);--vscode-icube-colorWarningTransparent3: rgba(220, 135, 48, 0.36);--vscode-icube-colorAlert: #c2a857;--vscode-icube-colorAlertHover: #deb245;--vscode-icube-colorAlertActive: #ab9220;--vscode-icube-colorAlertTransparent: rgba(194, 168, 87, 0.16);--vscode-icube-colorAlertTransparent2: rgba(194, 168, 87, 0.28);--vscode-icube-colorAlertTransparent3: rgba(194, 168, 87, 0.36);--vscode-icube-colorErrorTm1: rgba(204, 75, 83, 0.2);--vscode-icube-colorErrorTr1: rgba(208, 42, 35, 0.18);--vscode-icube-colorSpinLoading: #2f74ff;--vscode-icube-colorC1: #2dd288;--vscode-icube-colorC2: #ff9392;--vscode-icube-colorC3: #dcb364;--vscode-icube-colorC4: #8acb3a;--vscode-icube-colorC5: #04cbe5;--vscode-icube-colorC6: #7bb8ff;--vscode-icube-colorC7: #ec93ff;--vscode-icube-colorC8: #bfa5ff;--vscode-icube-colorC9: #afb9cf;--vscode-icube-colorDiffToggleBtnBg: #8d7aff;--vscode-icube-textPreformatBackground: #9d89eb;--vscode-icube-colorRed1: rgba(221, 55, 48, 0.5);--vscode-icube-colorRed2: rgba(221, 55, 48, 0.1);--vscode-icube-colorRed3: #dd3730;--vscode-icube-colorGreen1: #016a51;--vscode-icube-colorDiffBtn1: #ffffff;--vscode-icube-diffInsertedTextBackground: rgba(38, 165, 123, 0.32);--vscode-icube-colorChatError: rgba(221, 55, 48, 0.5);--vscode-icube-chatIconBg1: #ffffff;--vscode-icube-chatIconColor1: #ff4a36;--vscode-icube-emptyExplorerButtonBgColor: rgba(194, 202, 242, 0.1);--vscode-icube-emptyExplorerButtonTextColor: #dadde5;--vscode-icube-emptyExplorerSplitTextColor: #737780;--vscode-icube-emptyExplorerSplitColor: rgba(221, 226, 233, 0.16);--vscode-icube-lite.colorBg1: #25252d;--vscode-icube-lite.colorBg2: #1d1c23;--vscode-icube-lite.colorLine1: #2e2e38;--vscode-widget-shadow1: rgba(0, 0, 0, 0.16);--vscode-widget-shadow2: rgba(0, 0, 0, 0.1);--vscode-widget-light.shadow1: rgba(0, 0, 0, 0.04);--vscode-widget-light.shadow2: rgba(0, 0, 0, 0.08);--vscode-icube-tooltipsTextColor: #181a1f;--vscode-icube-ai.disableInputBorderColor: rgba(194, 202, 242, 0.24);--vscode-icube-scrollbarBgColor: rgba(221, 226, 233, 0.25);--vscode-icube-scrollbarHoverBgColor: rgba(221, 226, 233, 0.35);--vscode-icube-desktopEmptyWorkspaceIconBg: rgba(194, 202, 242, 0.1);--vscode-icube-desktopEmptyWorkspaceHoverBg: rgba(194, 202, 242, 0.15);--vscode-icube--code-code-text: #e0e3ee;--vscode-icube-primaryButtonBackground: #d1d3db;--vscode-icube-primaryButtonForeground: #000000;--vscode-icube-primaryButtonHoverBackground: #edeff2;--vscode-icube-primaryButtonHoverForeground: #000000;--vscode-icube-primaryButtonActivateBackground: #979aa4;--vscode-icube-primaryButtonActivateForeground: #000000;--vscode-icube-primaryButtonDisableBackground: #666b75;--vscode-icube-primaryButtonDisableForeground: #000000;--vscode-icube-defaultButtonBackground: rgba(176, 192, 244, 0.06);--vscode-icube-defaultButtonForeground: #d1d3db;--vscode-icube-defaultButtonHoverBackground: rgba(176, 192, 244, 0.09);--vscode-icube-defaultButtonHoverForeground: #d1d3db;--vscode-icube-defaultButtonActivateBackground: rgba(176, 192, 244, 0.13);--vscode-icube-defaultButtonActivateForeground: #d1d3db;--vscode-icube-defaultButtonDisableBackground: rgba(176, 192, 244, 0.09);--vscode-icube-defaultButtonDisableForeground: #666b75;--vscode-icube-checkboxBorder: #d1d3db;--vscode-icube-checkboxBackground: #d1d3db;--vscode-icube-checkboxDisabledBackground: #666b75;--vscode-icube-checkboxForeground: #000000;--vscode-icube-checkboxUncheckedBorder: rgba(176, 192, 244, 0.18);--vscode-icube-checkboxUncheckedBackground: #181d27;--vscode-icube-badgeBackground: #387bff;--vscode-icube-badgeForeground: #ffffff;--vscode-icube-colorBgTr1: rgba(176, 192, 244, 0.06);--vscode-icube-colorBgTr2: rgba(176, 192, 244, 0.09);--vscode-icube-colorBgTr3: rgba(176, 192, 244, 0.13);--vscode-icube-colorTextDefault: #d1d3db;--vscode-icube-colorTextHighlight: #f5f9fe;--vscode-icube-colorTextGray: #9599a6;--vscode-icube-colorTextDisable: #666b75;--vscode-icube-colorBrandTr1: rgba(176, 192, 244, 0.06);--vscode-icube-colorBrandTr2: rgba(176, 192, 244, 0.09);--vscode-icube-colorBrandTr3: rgba(176, 192, 244, 0.13);--vscode-icube-colorSuccessTr1: rgba(0, 165, 110, 0.18);--vscode-icube-colorSuccessTr2: rgba(0, 165, 110, 0.28);--vscode-icube-colorSuccessTr3: rgba(0, 165, 110, 0.36);--vscode-icube-colorErrorTr2: rgba(208, 42, 35, 0.28);--vscode-icube-colorErrorTr3: rgba(208, 42, 35, 0.36);--vscode-icube-colorWarningTr1: rgba(235, 155, 97, 0.2);--vscode-icube-colorWarningTr2: rgba(220, 135, 48, 0.28);--vscode-icube-colorWarningTr3: rgba(220, 135, 48, 0.36);--vscode-icube-colorAlertTr1: rgba(194, 168, 87, 0.16);--vscode-icube-colorAlertTr2: rgba(194, 168, 87, 0.28);--vscode-icube-colorAlertTr3: rgba(194, 168, 87, 0.36);--vscode-icube-colorTextButtonHighlight: #f5f9fe;--vscode-icube--special-white: #ffffff;--vscode-icube--special-black: #000000;--vscode-icube--bg-bg-base-default: #181d27;--vscode-icube--bg-bg-tooltip: #181d27;--vscode-icube--bg-bg-base-secondary: #232a35;--vscode-icube--bg-bg-base-tertiary: #2e3743;--vscode-icube--bg-bg-overlay-l1: rgba(176, 192, 244, 0.04);--vscode-icube--bg-bg-overlay-l2: rgba(176, 192, 244, 0.06);--vscode-icube--bg-bg-overlay-l3: rgba(176, 192, 244, 0.09);--vscode-icube--bg-bg-overlay-l4: rgba(176, 192, 244, 0.13);--vscode-icube--border-border-neutral-l1: rgba(176, 192, 244, 0.08);--vscode-icube--border-border-neutral-l2: rgba(176, 192, 244, 0.12);--vscode-icube--border-border-neutral-l3: rgba(176, 192, 244, 0.18);--vscode-icube--text-text-default-hover: #f5f9fe;--vscode-icube--text-text-default-active: #f5f9fe;--vscode-icube--icon-icon-default-hover: #f5f9fe;--vscode-icube--icon-icon-default-active: #f5f9fe;--vscode-icube--text-text-default: #d1d3db;--vscode-icube--text-text-secondary-hover: #d1d3db;--vscode-icube--text-text-secondary-active: #d1d3db;--vscode-icube--icon-icon-default: #d1d3db;--vscode-icube--icon-icon-secondary-hover: #d1d3db;--vscode-icube--icon-icon-secondary-active: #d1d3db;--vscode-icube--text-text-secondary: #9599a6;--vscode-icube--icon-icon-secondary: #9599a6;--vscode-icube--text-text-tertiary: #666b75;--vscode-icube--text-text-disabled: #666b75;--vscode-icube--icon-icon-tertiary: #666b75;--vscode-icube--icon-icon-disabled: #666b75;--vscode-icube--status-primary-default: #387bff;--vscode-icube--status-primary-hover: #4c88ff;--vscode-icube--status-primary-active: #1759dd;--vscode-icube--status-primary-surface-l1: rgba(53, 121, 255, 0.18);--vscode-icube--status-primary-surface-l2: rgba(53, 121, 255, 0.28);--vscode-icube--status-primary-surface-l3: rgba(53, 121, 255, 0.36);--vscode-icube--status-success-default: #33c192;--vscode-icube--status-success-hover: #5ed4ad;--vscode-icube--status-success-active: #27b082;--vscode-icube--status-success-surface-l1: rgba(0, 165, 110, 0.18);--vscode-icube--status-success-surface-l2: rgba(0, 165, 110, 0.28);--vscode-icube--status-success-surface-l3: rgba(0, 165, 110, 0.36);--vscode-icube--status-alert-default: #c2a857;--vscode-icube--status-alert-hover: #deb245;--vscode-icube--status-alert-active: #ab9220;--vscode-icube--status-alert-surface-l1: rgba(194, 168, 87, 0.16);--vscode-icube--status-alert-surface-l2: rgba(194, 168, 87, 0.28);--vscode-icube--status-alert-surface-l3: rgba(194, 168, 87, 0.36);--vscode-icube--status-warning-default: #dc8730;--vscode-icube--status-warning-hover: #f1a03f;--vscode-icube--status-warning-active: #c0701d;--vscode-icube--status-warning-surface-l1: rgba(220, 135, 48, 0.16);--vscode-icube--status-warning-surface-l2: rgba(220, 135, 48, 0.28);--vscode-icube--status-warning-surface-l3: rgba(220, 135, 48, 0.36);--vscode-icube--status-error-default: #f65a5a;--vscode-icube--status-error-hover: #f86262;--vscode-icube--status-error-active: #ad2020;--vscode-icube--status-error-surface-l1: rgba(208, 42, 35, 0.18);--vscode-icube--status-error-surface-l2: rgba(208, 42, 35, 0.28);--vscode-icube--status-error-surface-l3: rgba(208, 42, 35, 0.36);--vscode-icube--bg-bg-invert: #dadde5;--vscode-icube--bg-bg-invert-hover: #edeff2;--vscode-icube--bg-bg-invert-active: #979aa4;--vscode-icube--bg-bg-invert-disabled: rgba(176, 192, 244, 0.13);--vscode-icube--accent-accent-teal: #2dd288;--vscode-icube--accent-accent-coral: #ff9392;--vscode-icube--accent-accent-amber: #dcb364;--vscode-icube--accent-accent-lime: #8acb3a;--vscode-icube--accent-accent-cyan: #04cbe5;--vscode-icube--accent-accent-blue: #7bb8ff;--vscode-icube--accent-accent-magenta: #ec93ff;--vscode-icube--accent-accent-violet: #bfa5ff;--vscode-icube--accent-accent-slate: #afb9cf;--vscode-icube--bg-bg-menu: #1e242f;--vscode-icube--bg-bg-menu-tr0: rgba(46, 55, 67, 0);--vscode-icube--bg-bg-brand: #32f08c;--vscode-icube--bg-bg-brand-hover: #0fdc78;--vscode-icube--bg-bg-brand-disabled: rgba(50, 240, 140, 0.2);--vscode-icube--border-border-contrast: #ffffff;--vscode-icube--border-border-brand: #32f08c;--vscode-icube--text-text-brand: #32f08c;--vscode-icube--icon-icon-brand: #32f08c;--vscode-icube--text-text-brand-hover: #0fdc78;--vscode-icube--icon-icon-brand-hover: #0fdc78;--vscode-icube--text-text-onbrand: #0c0c0d;--vscode-icube--icon-icon-onbrand: #0c0c0d;--vscode-icube--text-text-onaccent: #0c0c0d;--vscode-icube--icon-icon-onaccent: #0c0c0d;--vscode-icube--special-bgtabsoverlay: rgba(13, 14, 15, 0.18);--vscode-icube--code-code-tag: #f2858c;--vscode-icube--code-code-instruction: #f0d8ff;--vscode-icube--code-code-doc: #7f838c;--vscode-icube--code-code-parameter: #82d99f;--vscode-icube--cue: #0fdc78;--vscode-icube--cue-tr0: rgba(15, 220, 120, 0);--vscode-icube--cue-tr1: rgba(15, 220, 120, 0.16);--vscode-icube--cue-tr2: rgba(15, 220, 120, 0.32);--vscode-icube--cue-diff-add: #00a56e;--vscode-icube--cue-diff-add-inline: rgba(0, 165, 110, 0.12);--vscode-icube--cue-diff-add-popup: rgba(0, 165, 110, 0.18);--vscode-icube--cue-diff-remove: rgba(246, 70, 70, 0.14);--vscode-icube--cue-diff-line: rgba(255, 255, 255, 0.32);--vscode-solo-lite-root-background: #181d27;--vscode-icube-memoryRiskBackground: #453121;--vscode-icube-memoryRiskBorder: #6b4d35;--vscode-icube-memoryRiskIcon: #d27e24;--vscode-icube-blendColor.btnHover.bg2: #32384a;--vscode-icube-blendColor.btnTransparent3.bg2: #3f475d;--vscode-editor-lineHighlightBackground: #282b3a;--vscode-editor-inactiveLineHighlightBackground: #282b3a;--vscode-editor-lineHighlightBorder: #282828;--vscode-editor-rangeHighlightBackground: rgba(255, 255, 255, 0.04);--vscode-editor-symbolHighlightBackground: rgba(218, 221, 229, 0.32);--vscode-editorCursor-foreground: #ffffff;--vscode-editorMultiCursor-primary.foreground: #ffffff;--vscode-editorMultiCursor-secondary.foreground: #ffffff;--vscode-editorWhitespace-foreground: rgba(227, 228, 226, 0.16);--vscode-editorLineNumber-foreground: #979aa4;--vscode-editorIndentGuide-background: rgba(176, 192, 244, 0.08);--vscode-editorIndentGuide-activeBackground: rgba(176, 192, 244, 0.18);--vscode-editorIndentGuide-background1: rgba(176, 192, 244, 0.08);--vscode-editorIndentGuide-background2: rgba(0, 0, 0, 0);--vscode-editorIndentGuide-background3: rgba(0, 0, 0, 0);--vscode-editorIndentGuide-background4: rgba(0, 0, 0, 0);--vscode-editorIndentGuide-background5: rgba(0, 0, 0, 0);--vscode-editorIndentGuide-background6: rgba(0, 0, 0, 0);--vscode-editorIndentGuide-activeBackground1: rgba(176, 192, 244, 0.18);--vscode-editorIndentGuide-activeBackground2: rgba(0, 0, 0, 0);--vscode-editorIndentGuide-activeBackground3: rgba(0, 0, 0, 0);--vscode-editorIndentGuide-activeBackground4: rgba(0, 0, 0, 0);--vscode-editorIndentGuide-activeBackground5: rgba(0, 0, 0, 0);--vscode-editorIndentGuide-activeBackground6: rgba(0, 0, 0, 0);--vscode-editorActiveLineNumber-foreground: #c6c6c6;--vscode-editorLineNumber-activeForeground: #e0e3ee;--vscode-editorRuler-foreground: #5a5a5a;--vscode-editorCodeLens-foreground: #999999;--vscode-editorBracketMatch-background: rgba(213, 216, 224, 0.24);--vscode-editorBracketMatch-border: rgba(213, 216, 224, 0);--vscode-editorOverviewRuler-border: rgba(127, 127, 127, 0.3);--vscode-editorGutter-background: #181d27;--vscode-editorUnnecessaryCode-opacity: rgba(0, 0, 0, 0.5);--vscode-editorGhostText-foreground: rgba(255, 255, 255, 0.34);--vscode-editorOverviewRuler-rangeHighlightForeground: rgba(0, 122, 204, 0.6);--vscode-editorOverviewRuler-errorForeground: rgba(255, 18, 18, 0.7);--vscode-editorOverviewRuler-warningForeground: #cca700;--vscode-editorOverviewRuler-infoForeground: #59a4f9;--vscode-editorBracketHighlight-foreground1: #ffd700;--vscode-editorBracketHighlight-foreground2: #da70d6;--vscode-editorBracketHighlight-foreground3: #179fff;--vscode-editorBracketHighlight-foreground4: rgba(0, 0, 0, 0);--vscode-editorBracketHighlight-foreground5: rgba(0, 0, 0, 0);--vscode-editorBracketHighlight-foreground6: rgba(0, 0, 0, 0);--vscode-editorBracketHighlight-unexpectedBracket.foreground: rgba(255, 18, 18, 0.8);--vscode-editorBracketPairGuide-background1: rgba(176, 192, 244, 0.08);--vscode-editorBracketPairGuide-background2: rgba(176, 192, 244, 0.08);--vscode-editorBracketPairGuide-background3: rgba(176, 192, 244, 0.08);--vscode-editorBracketPairGuide-background4: rgba(176, 192, 244, 0.08);--vscode-editorBracketPairGuide-background5: rgba(176, 192, 244, 0.08);--vscode-editorBracketPairGuide-background6: rgba(176, 192, 244, 0.08);--vscode-editorBracketPairGuide-activeBackground1: rgba(0, 0, 0, 0);--vscode-editorBracketPairGuide-activeBackground2: rgba(0, 0, 0, 0);--vscode-editorBracketPairGuide-activeBackground3: rgba(0, 0, 0, 0);--vscode-editorBracketPairGuide-activeBackground4: rgba(0, 0, 0, 0);--vscode-editorBracketPairGuide-activeBackground5: rgba(0, 0, 0, 0);--vscode-editorBracketPairGuide-activeBackground6: rgba(0, 0, 0, 0);--vscode-editorUnicodeHighlight-border: #cca700;--vscode-diffEditor-move.border: rgba(139, 139, 139, 0.61);--vscode-diffEditor-moveActive.border: #ffa500;--vscode-diffEditor-unchangedRegionShadow: #000000;--vscode-settings-headerForeground: #f5f9fe;--vscode-settings-settingsHeaderHoverForeground: rgba(245, 249, 254, 0.7);--vscode-settings-modifiedItemIndicator: #dadde5;--vscode-settings-headerBorder: rgba(176, 192, 244, 0.12);--vscode-settings-sashBorder: rgba(128, 128, 128, 0.35);--vscode-settings-dropdownBackground: #2e3743;--vscode-settings-dropdownForeground: #f0f0f0;--vscode-settings-dropdownBorder: rgba(176, 192, 244, 0.08);--vscode-settings-dropdownListBorder: #454545;--vscode-settings-checkboxBackground: #3c3c3c;--vscode-settings-checkboxForeground: #f0f0f0;--vscode-settings-checkboxBorder: #6b6b6b;--vscode-settings-textInputBackground: rgba(176, 192, 244, 0.04);--vscode-settings-textInputForeground: #d1d3db;--vscode-settings-numberInputBackground: rgba(176, 192, 244, 0.04);--vscode-settings-numberInputForeground: #d1d3db;--vscode-settings-focusedRowBackground: rgba(176, 192, 244, 0.04);--vscode-settings-rowHoverBackground: rgba(176, 192, 244, 0.02);--vscode-settings-focusedRowBorder: rgba(0, 0, 0, 0);--vscode-editorOverviewRuler-bracketMatchForeground: #a0a0a0;--vscode-actionBar-toggledBackground: #383a49;--vscode-symbolIcon-arrayForeground: #d1d3db;--vscode-symbolIcon-booleanForeground: #d1d3db;--vscode-symbolIcon-classForeground: #ee9d28;--vscode-symbolIcon-colorForeground: #d1d3db;--vscode-symbolIcon-constantForeground: #d1d3db;--vscode-symbolIcon-constructorForeground: #b180d7;--vscode-symbolIcon-enumeratorForeground: #ee9d28;--vscode-symbolIcon-enumeratorMemberForeground: #75beff;--vscode-symbolIcon-eventForeground: #ee9d28;--vscode-symbolIcon-fieldForeground: #75beff;--vscode-symbolIcon-fileForeground: #d1d3db;--vscode-symbolIcon-folderForeground: #d1d3db;--vscode-symbolIcon-functionForeground: #b180d7;--vscode-symbolIcon-interfaceForeground: #75beff;--vscode-symbolIcon-keyForeground: #d1d3db;--vscode-symbolIcon-keywordForeground: #d1d3db;--vscode-symbolIcon-methodForeground: #b180d7;--vscode-symbolIcon-moduleForeground: #d1d3db;--vscode-symbolIcon-namespaceForeground: #d1d3db;--vscode-symbolIcon-nullForeground: #d1d3db;--vscode-symbolIcon-numberForeground: #d1d3db;--vscode-symbolIcon-objectForeground: #d1d3db;--vscode-symbolIcon-operatorForeground: #d1d3db;--vscode-symbolIcon-packageForeground: #d1d3db;--vscode-symbolIcon-propertyForeground: #d1d3db;--vscode-symbolIcon-referenceForeground: #d1d3db;--vscode-symbolIcon-snippetForeground: #d1d3db;--vscode-symbolIcon-stringForeground: #d1d3db;--vscode-symbolIcon-structForeground: #d1d3db;--vscode-symbolIcon-textForeground: #d1d3db;--vscode-symbolIcon-typeParameterForeground: #d1d3db;--vscode-symbolIcon-unitForeground: #d1d3db;--vscode-symbolIcon-variableForeground: #75beff;--vscode-peekViewTitle-background: #252526;--vscode-peekViewTitleLabel-foreground: #ffffff;--vscode-peekViewTitleDescription-foreground: rgba(204, 204, 204, 0.7);--vscode-peekView-border: #59a4f9;--vscode-peekViewResult-background: #252526;--vscode-peekViewResult-lineForeground: #bbbbbb;--vscode-peekViewResult-fileForeground: #ffffff;--vscode-peekViewResult-selectionBackground: rgba(51, 153, 255, 0.2);--vscode-peekViewResult-selectionForeground: #ffffff;--vscode-peekViewEditor-background: #001f33;--vscode-peekViewEditorGutter-background: #001f33;--vscode-peekViewEditorStickyScroll-background: #001f33;--vscode-peekViewEditorStickyScrollGutter-background: #001f33;--vscode-peekViewResult-matchHighlightBackground: rgba(234, 92, 0, 0.3);--vscode-peekViewEditor-matchHighlightBackground: rgba(255, 143, 0, 0.6);--vscode-editorMarkerNavigationError-background: #f14c4c;--vscode-editorMarkerNavigationError-headerBackground: rgba(241, 76, 76, 0.1);--vscode-editorMarkerNavigationWarning-background: #cca700;--vscode-editorMarkerNavigationWarning-headerBackground: rgba(204, 167, 0, 0.1);--vscode-editorMarkerNavigationInfo-background: #59a4f9;--vscode-editorMarkerNavigationInfo-headerBackground: rgba(89, 164, 249, 0.1);--vscode-editorMarkerNavigation-background: #181d27;--vscode-editor-foldBackground: rgba(53, 121, 255, 0.08);--vscode-editor-foldPlaceholderForeground: #808080;--vscode-editorGutter-foldingControlForeground: #9599a6;--vscode-editorSuggestWidget-background: #252526;--vscode-editorSuggestWidget-border: #454545;--vscode-editorSuggestWidget-foreground: #d1d3db;--vscode-editorSuggestWidget-selectedForeground: #f5f9fe;--vscode-editorSuggestWidget-selectedIconForeground: #ffffff;--vscode-editorSuggestWidget-selectedBackground: rgba(176, 192, 244, 0.09);--vscode-editorSuggestWidget-highlightForeground: #dadde5;--vscode-editorSuggestWidget-focusHighlightForeground: #dadde5;--vscode-editorSuggestWidgetStatus-foreground: rgba(209, 211, 219, 0.5);--vscode-inlineEdit-originalBackground: rgba(208, 42, 35, 0.06);--vscode-inlineEdit-modifiedBackground: rgba(0, 165, 110, 0.08);--vscode-inlineEdit-originalChangedLineBackground: rgba(208, 42, 35, 0.22);--vscode-inlineEdit-originalChangedTextBackground: rgba(208, 42, 35, 0.22);--vscode-inlineEdit-modifiedChangedLineBackground: rgba(0, 165, 110, 0.2);--vscode-inlineEdit-modifiedChangedTextBackground: rgba(0, 165, 110, 0.2);--vscode-inlineEdit-gutterIndicator.primaryForeground: #000000;--vscode-inlineEdit-gutterIndicator.primaryBorder: #d1d3db;--vscode-inlineEdit-gutterIndicator.primaryBackground: rgba(209, 211, 219, 0.4);--vscode-inlineEdit-gutterIndicator.secondaryForeground: #ffffff;--vscode-inlineEdit-gutterIndicator.secondaryBorder: #3a3d41;--vscode-inlineEdit-gutterIndicator.secondaryBackground: #3a3d41;--vscode-inlineEdit-gutterIndicator.successfulForeground: #000000;--vscode-inlineEdit-gutterIndicator.successfulBorder: #d1d3db;--vscode-inlineEdit-gutterIndicator.successfulBackground: #d1d3db;--vscode-inlineEdit-gutterIndicator.background: rgba(23, 25, 26, 0.5);--vscode-inlineEdit-originalBorder: rgba(208, 42, 35, 0.28);--vscode-inlineEdit-modifiedBorder: rgba(0, 165, 110, 0.28);--vscode-inlineEdit-tabWillAcceptModifiedBorder: rgba(0, 165, 110, 0.28);--vscode-inlineEdit-tabWillAcceptOriginalBorder: rgba(208, 41, 35, 0.28);--vscode-editor-linkedEditingBackground: rgba(255, 0, 0, 0.3);--vscode-editor-wordHighlightBackground: rgba(87, 87, 87, 0.72);--vscode-editor-wordHighlightStrongBackground: rgba(0, 73, 114, 0.72);--vscode-editor-wordHighlightTextBackground: rgba(87, 87, 87, 0.72);--vscode-editorOverviewRuler-wordHighlightForeground: rgba(160, 160, 160, 0.8);--vscode-editorOverviewRuler-wordHighlightStrongForeground: rgba(192, 160, 192, 0.8);--vscode-editorOverviewRuler-wordHighlightTextForeground: rgba(160, 160, 160, 0.8);--vscode-editorHoverWidget-highlightForeground: #dadde5;--vscode-editor-placeholder.foreground: rgba(255, 255, 255, 0.34);--vscode-editorGutter-modifiedBackground: #1b81a8;--vscode-editorGutter-modifiedSecondaryBackground: #0d4054;--vscode-editorGutter-addedBackground: #487e02;--vscode-editorGutter-addedSecondaryBackground: #243f01;--vscode-editorGutter-deletedBackground: #f14c4c;--vscode-editorGutter-deletedSecondaryBackground: #b00e0e;--vscode-minimapGutter-modifiedBackground: #1b81a8;--vscode-minimapGutter-addedBackground: #487e02;--vscode-minimapGutter-deletedBackground: #f14c4c;--vscode-editorOverviewRuler-modifiedForeground: rgba(27, 129, 168, 0.6);--vscode-editorOverviewRuler-addedForeground: rgba(72, 126, 2, 0.6);--vscode-editorOverviewRuler-deletedForeground: rgba(241, 76, 76, 0.6);--vscode-editorGutter-itemGlyphForeground: #d1d3db;--vscode-editorGutter-itemBackground: #202633;--vscode-agentSessionReadIndicator-foreground: rgba(209, 211, 219, 0.15);--vscode-terminal-foreground: #cccccc;--vscode-terminal-selectionBackground: rgba(53, 121, 255, 0.28);--vscode-terminal-inactiveSelectionBackground: #3a3d41;--vscode-terminalCommandDecoration-defaultBackground: rgba(255, 255, 255, 0.25);--vscode-terminalCommandDecoration-successBackground: #1b81a8;--vscode-terminalCommandDecoration-errorBackground: #f14c4c;--vscode-terminalOverviewRuler-cursorForeground: rgba(160, 160, 160, 0.8);--vscode-terminal-border: rgba(128, 128, 128, 0.35);--vscode-terminalOverviewRuler-border: rgba(127, 127, 127, 0.3);--vscode-terminal-findMatchBackground: #515c6a;--vscode-terminal-hoverHighlightBackground: rgba(38, 79, 120, 0.13);--vscode-terminal-findMatchHighlightBackground: rgba(218, 221, 229, 0.32);--vscode-terminalOverviewRuler-findMatchForeground: rgba(209, 134, 22, 0.49);--vscode-terminal-dropBackground: rgba(53, 121, 255, 0.2);--vscode-terminal-tab.activeBorder: #181d27;--vscode-terminal-initialHintForeground: rgba(255, 255, 255, 0.34);--vscode-scmGraph-historyItemRefColor: #59a4f9;--vscode-scmGraph-historyItemRemoteRefColor: #b180d7;--vscode-scmGraph-historyItemBaseRefColor: #ea5c00;--vscode-scmGraph-historyItemHoverDefaultLabelForeground: #d1d3db;--vscode-scmGraph-historyItemHoverDefaultLabelBackground: #4d4d4d;--vscode-scmGraph-historyItemHoverLabelForeground: #181d27;--vscode-scmGraph-historyItemHoverAdditionsForeground: #81b88b;--vscode-scmGraph-historyItemHoverDeletionsForeground: #c74e39;--vscode-scmGraph-foreground1: #ffb000;--vscode-scmGraph-foreground2: #dc267f;--vscode-scmGraph-foreground3: #994f00;--vscode-scmGraph-foreground4: #40b0a6;--vscode-scmGraph-foreground5: #b66dff;--vscode-commentsView-resolvedIcon: #666b75;--vscode-commentsView-unresolvedIcon: rgba(0, 0, 0, 0);--vscode-editorCommentsWidget-replyInputBackground: #252526;--vscode-editorCommentsWidget-resolvedBorder: #666b75;--vscode-editorCommentsWidget-unresolvedBorder: rgba(0, 0, 0, 0);--vscode-editorCommentsWidget-rangeBackground: rgba(0, 0, 0, 0);--vscode-editorCommentsWidget-rangeActiveBackground: rgba(0, 0, 0, 0);--vscode-editorGutter-commentRangeForeground: #202633;--vscode-editorOverviewRuler-commentForeground: #202633;--vscode-editorOverviewRuler-commentUnresolvedForeground: #202633;--vscode-editorOverviewRuler-commentDraftForeground: #202633;--vscode-editorGutter-commentGlyphForeground: #d1d3db;--vscode-editorGutter-commentUnresolvedGlyphForeground: #d1d3db;--vscode-editorGutter-commentDraftGlyphForeground: #d1d3db;--vscode-ports-iconRunningProcessForeground: #369432;--vscode-welcomePage-tileBackground: #252526;--vscode-welcomePage-tileHoverBackground: #2c2c2d;--vscode-welcomePage-tileBorder: rgba(255, 255, 255, 0.1);--vscode-welcomePage-progress.background: rgba(176, 192, 244, 0.04);--vscode-welcomePage-progress.foreground: #dadde5;--vscode-walkthrough-stepTitle.foreground: #ffffff;--vscode-extensionIcon-verifiedForeground: #dadde5;--vscode-keybindingTable-headerBackground: rgba(209, 211, 219, 0.04);--vscode-keybindingTable-rowsBackground: rgba(209, 211, 219, 0.04);--vscode-extensionButton-background: #d1d3db;--vscode-extensionButton-foreground: #000000;--vscode-extensionButton-hoverBackground: #edeff2;--vscode-extensionButton-separator: rgba(13, 14, 15, 0.18);--vscode-extensionButton-prominentBackground: #d1d3db;--vscode-extensionButton-prominentForeground: #000000;--vscode-extensionButton-prominentHoverBackground: #edeff2;--vscode-debugToolBar-background: #232a35;--vscode-debugIcon-startForeground: #89d185;--vscode-notebook-cellBorderColor: rgba(176, 192, 244, 0.06);--vscode-notebook-focusedEditorBorder: rgba(0, 0, 0, 0);--vscode-notebookStatusSuccessIcon-foreground: #89d185;--vscode-notebookEditorOverviewRuler-runningCellForeground: #89d185;--vscode-notebookStatusErrorIcon-foreground: #cc4b53;--vscode-notebookStatusRunningIcon-foreground: #d1d3db;--vscode-notebook-cellToolbarSeparator: rgba(128, 128, 128, 0.35);--vscode-notebook-selectedCellBackground: rgba(176, 192, 244, 0.06);--vscode-notebook-selectedCellBorder: rgba(176, 192, 244, 0.06);--vscode-notebook-focusedCellBorder: rgba(0, 0, 0, 0);--vscode-notebook-inactiveFocusedCellBorder: rgba(176, 192, 244, 0.06);--vscode-notebook-cellStatusBarItemHoverBackground: rgba(255, 255, 255, 0.15);--vscode-notebook-cellInsertionIndicator: rgba(0, 0, 0, 0);--vscode-notebookScrollbarSlider-background: rgba(121, 121, 121, 0.4);--vscode-notebookScrollbarSlider-hoverBackground: rgba(100, 100, 100, 0.7);--vscode-notebookScrollbarSlider-activeBackground: rgba(191, 191, 191, 0.4);--vscode-notebook-symbolHighlightBackground: rgba(255, 255, 255, 0.04);--vscode-notebook-cellEditorBackground: #181d27;--vscode-notebook-editorBackground: #181d27;--vscode-inlineChat-foreground: #d1d3db;--vscode-inlineChat-background: #252526;--vscode-inlineChat-border: #454545;--vscode-inlineChat-shadow: rgba(0, 0, 0, 0.16);--vscode-inlineChatInput-border: #454545;--vscode-inlineChatInput-focusBorder: rgba(0, 0, 0, 0);--vscode-inlineChatInput-placeholderForeground: #9599a6;--vscode-inlineChatInput-background: rgba(176, 192, 244, 0.04);--vscode-inlineChatDiff-inserted: rgba(0, 165, 110, 0.14);--vscode-editorOverviewRuler-inlineChatInserted: rgba(0, 165, 110, 0.17);--vscode-editorMinimap-inlineChatInserted: rgba(0, 165, 110, 0.17);--vscode-inlineChatDiff-removed: rgba(208, 42, 35, 0.14);--vscode-editorOverviewRuler-inlineChatRemoved: rgba(208, 42, 35, 0.17);--vscode-chat-requestBorder: rgba(255, 255, 255, 0.1);--vscode-chat-requestBackground: rgba(24, 29, 39, 0.62);--vscode-chat-slashCommandBackground: rgba(38, 71, 120, 0.4);--vscode-chat-slashCommandForeground: #85b6ff;--vscode-chat-avatarBackground: #1f1f1f;--vscode-chat-avatarForeground: #d1d3db;--vscode-chat-editedFileForeground: #e2c08d;--vscode-chat-requestCodeBorder: rgba(0, 73, 114, 0.72);--vscode-chat-requestBubbleBackground: rgba(53, 121, 255, 0.08);--vscode-chat-requestBubbleHoverBackground: rgba(53, 121, 255, 0.17);--vscode-chat-checkpointSeparator: #585858;--vscode-chat-linesAddedForeground: #54b054;--vscode-chat-linesRemovedForeground: #fc6a6a;--vscode-extensionIcon-starForeground: #ff8e00;--vscode-extensionIcon-preReleaseForeground: #1d9271;--vscode-extensionIcon-sponsorForeground: #d758b3;--vscode-extensionIcon-privateForeground: rgba(255, 255, 255, 0.38);--vscode-debugExceptionWidget-border: #a31515;--vscode-debugExceptionWidget-background: #420b0d;--vscode-editor-inlineValuesForeground: rgba(255, 255, 255, 0.5);--vscode-editor-inlineValuesBackground: rgba(255, 200, 0, 0.2);--vscode-debugIcon-breakpointForeground: #f65a5a;--vscode-debugIcon-breakpointDisabledForeground: #848484;--vscode-debugIcon-breakpointUnverifiedForeground: #848484;--vscode-debugIcon-breakpointCurrentStackframeForeground: #ffcc00;--vscode-debugIcon-breakpointStackframeForeground: #89d185;--vscode-editor-stackFrameHighlightBackground: rgba(255, 255, 0, 0.2);--vscode-editor-focusedStackFrameHighlightBackground: rgba(122, 189, 122, 0.3);--vscode-multiDiffEditor-headerBackground: #262626;--vscode-multiDiffEditor-background: #181d27;--vscode-multiDiffEditor-border: rgba(176, 192, 244, 0.12);--vscode-minimap-chatEditHighlight: rgba(24, 29, 39, 0.6);--vscode-chatManagement-sashBorder: rgba(128, 128, 128, 0.35);--vscode-gauge-foreground: #007acc;--vscode-gauge-background: rgba(0, 122, 204, 0.3);--vscode-gauge-warningForeground: #dc8730;--vscode-gauge-warningBackground: rgba(220, 135, 48, 0.3);--vscode-gauge-errorForeground: #f65a5a;--vscode-gauge-errorBackground: rgba(246, 90, 90, 0.3);--vscode-interactive-activeCodeBorder: #007acc;--vscode-interactive-inactiveCodeBorder: rgba(176, 192, 244, 0.06);--vscode-testing-iconFailed: #f14c4c;--vscode-testing-iconErrored: #f14c4c;--vscode-testing-iconPassed: #73c991;--vscode-testing-runAction: #73c991;--vscode-testing-iconQueued: #cca700;--vscode-testing-iconUnset: #848484;--vscode-testing-iconSkipped: #848484;--vscode-testing-peekBorder: #f14c4c;--vscode-testing-messagePeekBorder: #59a4f9;--vscode-testing-peekHeaderBackground: rgba(241, 76, 76, 0.1);--vscode-testing-messagePeekHeaderBackground: rgba(89, 164, 249, 0.1);--vscode-testing-coveredBackground: rgba(0, 165, 110, 0.28);--vscode-testing-coveredBorder: rgba(0, 165, 110, 0.21);--vscode-testing-coveredGutterBackground: rgba(0, 165, 110, 0.17);--vscode-testing-uncoveredBranchBackground: #7e2424;--vscode-testing-uncoveredBackground: rgba(208, 42, 35, 0.28);--vscode-testing-uncoveredBorder: rgba(208, 42, 35, 0.21);--vscode-testing-uncoveredGutterBackground: rgba(208, 42, 35, 0.42);--vscode-testing-coverCountBadgeBackground: #4d4d4d;--vscode-testing-coverCountBadgeForeground: #ffffff;--vscode-testing-message.error.badgeBackground: #f14c4c;--vscode-testing-message.error.badgeBorder: #f14c4c;--vscode-testing-message.error.badgeForeground: #000000;--vscode-testing-message.info.decorationForeground: rgba(209, 211, 219, 0.5);--vscode-testing-iconErrored.retired: rgba(241, 76, 76, 0.7);--vscode-testing-iconFailed.retired: rgba(241, 76, 76, 0.7);--vscode-testing-iconPassed.retired: rgba(115, 201, 145, 0.7);--vscode-testing-iconQueued.retired: rgba(204, 167, 0, 0.7);--vscode-testing-iconUnset.retired: rgba(132, 132, 132, 0.7);--vscode-testing-iconSkipped.retired: rgba(132, 132, 132, 0.7);--vscode-statusBar-debuggingBackground: #cc6633;--vscode-statusBar-debuggingForeground: #ffffff;--vscode-commandCenter-debuggingBackground: rgba(204, 102, 51, 0.26);--vscode-debugTokenExpression-name: #c586c0;--vscode-debugTokenExpression-type: #4a90e2;--vscode-debugTokenExpression-value: rgba(204, 204, 204, 0.6);--vscode-debugTokenExpression-string: #ce9178;--vscode-debugTokenExpression-boolean: #4e94ce;--vscode-debugTokenExpression-number: #b5cea8;--vscode-debugTokenExpression-error: #f48771;--vscode-debugView-exceptionLabelForeground: #d1d3db;--vscode-debugView-exceptionLabelBackground: #6c2022;--vscode-debugView-stateLabelForeground: #d1d3db;--vscode-debugView-stateLabelBackground: rgba(136, 136, 136, 0.27);--vscode-debugView-valueChangedHighlight: #569cd6;--vscode-debugConsole-infoForeground: #59a4f9;--vscode-debugConsole-warningForeground: #cca700;--vscode-debugConsole-errorForeground: #cc4b53;--vscode-debugConsole-sourceForeground: #d1d3db;--vscode-debugConsoleInputIcon-foreground: #d1d3db;--vscode-debugIcon-pauseForeground: #75beff;--vscode-debugIcon-stopForeground: #f48771;--vscode-debugIcon-disconnectForeground: #f48771;--vscode-debugIcon-restartForeground: #89d185;--vscode-debugIcon-stepOverForeground: #75beff;--vscode-debugIcon-stepIntoForeground: #75beff;--vscode-debugIcon-stepOutForeground: #75beff;--vscode-debugIcon-continueForeground: #75beff;--vscode-debugIcon-stepBackForeground: #75beff;--vscode-mergeEditor-change.background: rgba(155, 185, 85, 0.2);--vscode-mergeEditor-change.word.background: rgba(156, 204, 44, 0.2);--vscode-mergeEditor-changeBase.background: #4b1818;--vscode-mergeEditor-changeBase.word.background: #6f1313;--vscode-mergeEditor-conflict.unhandledUnfocused.border: rgba(255, 166, 0, 0.48);--vscode-mergeEditor-conflict.unhandledFocused.border: #ffa600;--vscode-mergeEditor-conflict.handledUnfocused.border: rgba(134, 134, 134, 0.29);--vscode-mergeEditor-conflict.handledFocused.border: rgba(193, 193, 193, 0.8);--vscode-mergeEditor-conflict.handled.minimapOverViewRuler: rgba(173, 172, 168, 0.93);--vscode-mergeEditor-conflict.unhandled.minimapOverViewRuler: #fcba03;--vscode-mergeEditor-conflictingLines.background: rgba(255, 234, 0, 0.28);--vscode-mergeEditor-conflict.input1.background: rgba(64, 200, 174, 0.2);--vscode-mergeEditor-conflict.input2.background: rgba(64, 166, 255, 0.2);--vscode-terminal-ansiBlack: #000000;--vscode-terminal-ansiRed: #cd3131;--vscode-terminal-ansiGreen: #0dbc79;--vscode-terminal-ansiYellow: #e5e510;--vscode-terminal-ansiBlue: #2472c8;--vscode-terminal-ansiMagenta: #bc3fbc;--vscode-terminal-ansiCyan: #11a8cd;--vscode-terminal-ansiWhite: #e5e5e5;--vscode-terminal-ansiBrightBlack: #666666;--vscode-terminal-ansiBrightRed: #f14c4c;--vscode-terminal-ansiBrightGreen: #23d18b;--vscode-terminal-ansiBrightYellow: #f5f543;--vscode-terminal-ansiBrightBlue: #3b8eea;--vscode-terminal-ansiBrightMagenta: #d670d6;--vscode-terminal-ansiBrightCyan: #29b8db;--vscode-terminal-ansiBrightWhite: #e5e5e5;--vscode-simpleFindWidget-sashBorder: #454545;--vscode-terminalStickyScrollHover-background: #2a2d2e;--vscode-terminalCommandGuide-foreground: rgba(176, 192, 244, 0.06);--vscode-terminalSymbolIcon-flagForeground: #ee9d28;--vscode-terminalSymbolIcon-aliasForeground: #b180d7;--vscode-terminalSymbolIcon-optionValueForeground: #75beff;--vscode-terminalSymbolIcon-methodForeground: #b180d7;--vscode-terminalSymbolIcon-argumentForeground: #75beff;--vscode-terminalSymbolIcon-optionForeground: #ee9d28;--vscode-terminalSymbolIcon-fileForeground: #d1d3db;--vscode-terminalSymbolIcon-folderForeground: #d1d3db;--vscode-terminalSymbolIcon-commitForeground: #d1d3db;--vscode-terminalSymbolIcon-branchForeground: #d1d3db;--vscode-terminalSymbolIcon-tagForeground: #d1d3db;--vscode-terminalSymbolIcon-stashForeground: #d1d3db;--vscode-terminalSymbolIcon-remoteForeground: #d1d3db;--vscode-terminalSymbolIcon-pullRequestForeground: #d1d3db;--vscode-terminalSymbolIcon-pullRequestDoneForeground: #d1d3db;--vscode-terminalSymbolIcon-symbolicLinkFileForeground: #d1d3db;--vscode-terminalSymbolIcon-symbolicLinkFolderForeground: #d1d3db;--vscode-terminalSymbolIcon-symbolText: #d1d3db;--vscode-markdownAlert-note.foreground: #59a4f9;--vscode-markdownAlert-tip.foreground: #89d185;--vscode-markdownAlert-important.foreground: #b180d7;--vscode-markdownAlert-warning.foreground: #cca700;--vscode-markdownAlert-caution.foreground: #f14c4c;--vscode-walkThrough-embeddedEditorBackground: rgba(0, 0, 0, 0.4);--vscode-profiles-sashBorder: rgba(128, 128, 128, 0.35);--vscode-icube-inlineChat.regionHighlight: rgba(38, 38, 38, 0.2);--vscode-icube-inlineChatDiff.inserted: rgba(0, 165, 110, 0.14);--vscode-icube-inlineChatDiff.removed: rgba(208, 42, 35, 0.14);--vscode-icube-simpleInlineChat.regionHighlight: rgba(38, 38, 38, 0.2);--vscode-icube-simpleInlineChatDiff.inserted: rgba(0, 165, 110, 0.18);--vscode-icube-simpleInlineChatDiff.removed: rgba(208, 42, 35, 0.18);--vscode-icube-iconColorBtnHover: rgba(237, 241, 248, 0.05);--vscode-icube-iconColorBtnHover2: rgba(237, 241, 248, 0.1);--vscode-gitDecoration-addedResourceForeground: #81b88b;--vscode-gitDecoration-modifiedResourceForeground: #e2c08d;--vscode-gitDecoration-deletedResourceForeground: #c74e39;--vscode-gitDecoration-renamedResourceForeground: #168a63;--vscode-gitDecoration-untrackedResourceForeground: #168a63;--vscode-gitDecoration-ignoredResourceForeground: #8c8c8c;--vscode-gitDecoration-stageModifiedResourceForeground: #e2c08d;--vscode-gitDecoration-stageDeletedResourceForeground: #c74e39;--vscode-gitDecoration-conflictingResourceForeground: #e4676b;--vscode-gitDecoration-submoduleResourceForeground: #8db9e2;--vscode-git-blame.editorDecorationForeground: #969696;}</style><style id="solo-lite-theme-variables" data-trae-edit-ui="true"></style><style>.trae-browser-inspect-overlay{position:fixed;top:0;left:0;width:100%;height:100%;z-index:999997;pointer-events:auto;background:rgba(0,0,0,0)}.trae-browser-inspect-highlight-box{position:absolute;top:0;left:0;z-index:999998;display:none}.trae-browser-inspect-highlight-tag{position:absolute;left:0px;top:0px;height:18px;padding:0 6px;box-sizing:border-box;border-radius:4px;background-color:var(--vscode-icube-colorSuccessHover, "#2FB287");color:var(--vscode-icube-colorSnow, "#fff");font-size:12px;font-weight:400;display:none;align-items:center;z-index:999999}.trae-browser-inspect-highlight-box-show{display:flex}.trae-browser-inspect-select-button.trae-browser-inspect-highlight-box-show{display:flex !important}.trae-browser-inspect-select-button{position:absolute;top:0;left:0;background-color:var(--vscode-icube--bg-bg-base-secondary, "#222427");color:var(--vscode-icube--text-text-default-active, "#F5F9FE");font-size:11px;font-weight:500;border:1px solid var(--vscode-icube--border-neutral-l1, "#E0E2F217");border-radius:6px;padding:0 8px;height:32px;display:none;align-items:center;cursor:pointer;z-index:999999;gap:4px}.trae-browser-inspect-select-button svg,.trae-browser-inspect-select-button span{z-index:1}.trae-browser-inspect-select-highlight-box{background:rgba(0,0,0,0) !important}.trae-browser-inspect-select-highlight-box .trae-browser-inspect-highlight-tag{background-color:var(--vscode-icube--status-success-active, "#1E8B56")}.trae-browser-inspect-comment-card-container{position:fixed;top:0;left:0;z-index:9999999;pointer-events:auto}.trae-browser-inspect-comment-card-container .trae-browser-inspect-comment-card{display:flex;padding-top:0px !important;align-items:center;z-index:9999999 !important;background-color:var(--vscode-icube--bg-bg-menu)}*[contenteditable]{outline:none}.trae-browser-inspect-click-effect{position:fixed;width:40px;height:40px;margin-left:-20px;margin-top:-20px;border-radius:50%;background-color:var(--vscode-icube-colorSuccessHover, #2FB287);pointer-events:none;animation:trae-browser-inspect-ripple 500ms ease-out forwards;z-index:999999}@keyframes trae-browser-inspect-ripple{0%{transform:scale(0.3);opacity:.8}100%{transform:scale(2);opacity:0}}.trae-browser-inspect-ref-box{position:absolute;border:2px solid var(--vscode-icube-colorSuccessHover, "#2FB287");pointer-events:none;z-index:999998;animation:trae-browser-inspect-fadeInOut 2s ease-in-out forwards}.trae-browser-inspect-ref-label{position:absolute;top:-14px;left:0;height:14px;padding:0 4px;box-sizing:border-box;border-radius:2px;background-color:var(--vscode-icube-colorSuccessHover, "#2FB287");color:var(--vscode-icube-colorSnow, "#fff");font-size:9px;font-weight:500;display:flex;align-items:center;white-space:nowrap;z-index:999999}@keyframes trae-browser-inspect-fadeInOut{0%{opacity:0}10%{opacity:1}90%{opacity:1}100%{opacity:0}}.trae-browser-inspect-input-highlight{position:absolute;border:2px solid var(--vscode-icube-colorSuccessHover, "#2FB287");border-radius:4px;pointer-events:none;z-index:999998;box-shadow:0 0 8px var(--vscode-icube-colorSuccessHover, "#2FB287");animation:trae-browser-inspect-input-pulse 600ms ease-out forwards}@keyframes trae-browser-inspect-input-pulse{0%{opacity:0;box-shadow:0 0 0 var(--vscode-icube-colorSuccessHover, "#2FB287")}30%{opacity:1;box-shadow:0 0 12px var(--vscode-icube-colorSuccessHover, "#2FB287")}100%{opacity:0;box-shadow:0 0 0 var(--vscode-icube-colorSuccessHover, "#2FB287")}}.trae-browser-inspect-virtual-cursor{position:fixed;width:20px;height:20px;pointer-events:none;z-index:9999999;opacity:0;transition:opacity .2s ease}.trae-browser-inspect-virtual-cursor.trae-browser-inspect-cursor-visible{opacity:1}.trae-browser-inspect-virtual-cursor.trae-browser-inspect-cursor-idle{animation:trae-browser-inspect-cursor-breathe 2s ease-in-out infinite}.trae-browser-inspect-virtual-cursor svg{width:20px;height:20px;filter:drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))}@keyframes trae-browser-inspect-cursor-breathe{0%,100%{opacity:.7}50%{opacity:1}}.trae-browser-inspect-scroll-indicator{position:fixed;display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 16px;border-radius:8px;background-color:rgba(0,0,0,.7);color:#fff;font-size:13px;font-weight:500;pointer-events:none;z-index:999999;animation:trae-browser-inspect-indicator-fade 800ms ease-out forwards;backdrop-filter:blur(4px)}.trae-browser-inspect-scroll-indicator svg{width:16px;height:16px;fill:#fff}.trae-browser-inspect-scroll-indicator.trae-scroll-up{top:12px;left:50%;transform:translateX(-50%)}.trae-browser-inspect-scroll-indicator.trae-scroll-down{bottom:12px;left:50%;transform:translateX(-50%)}.trae-browser-inspect-scroll-indicator.trae-scroll-left{left:12px;top:50%;transform:translateY(-50%)}.trae-browser-inspect-scroll-indicator.trae-scroll-right{right:12px;top:50%;transform:translateY(-50%)}@keyframes trae-browser-inspect-indicator-fade{0%{opacity:0;transform:translateX(-50%) scale(0.9)}15%{opacity:1;transform:translateX(-50%) scale(1)}85%{opacity:1}100%{opacity:0}}.trae-browser-inspect-scroll-indicator.trae-scroll-left,.trae-browser-inspect-scroll-indicator.trae-scroll-right{animation-name:trae-browser-inspect-indicator-fade-y}@keyframes trae-browser-inspect-indicator-fade-y{0%{opacity:0;transform:translateY(-50%) scale(0.9)}15%{opacity:1;transform:translateY(-50%) scale(1)}85%{opacity:1}100%{opacity:0}}.trae-browser-inspect-key-badge{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);padding:8px 20px;border-radius:8px;background-color:rgba(0,0,0,.8);color:#fff;font-size:18px;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,monospace;pointer-events:none;z-index:999999;animation:trae-browser-inspect-key-pop 500ms ease-out forwards;backdrop-filter:blur(4px);border:1px solid rgba(255,255,255,.15);box-shadow:0 4px 12px rgba(0,0,0,.3);letter-spacing:1px}@keyframes trae-browser-inspect-key-pop{0%{opacity:0;transform:translateX(-50%) translateY(10px) scale(0.9)}20%{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}80%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-10px)}}.trae-browser-inspect-step-badge{position:fixed;top:12px;left:12px;padding:6px 12px;border-radius:6px;background-color:var(--vscode-icube-colorSuccessHover, #2FB287);color:#fff;font-size:12px;font-weight:600;pointer-events:none;z-index:999999;animation:trae-browser-inspect-step-slide 600ms ease-out forwards;box-shadow:0 2px 8px rgba(47,178,135,.3);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.trae-browser-inspect-step-badge.trae-step-old{opacity:.4;transform:translateY(0)}@keyframes trae-browser-inspect-step-slide{0%{opacity:0;transform:translateX(-20px)}20%{opacity:1;transform:translateX(0)}100%{opacity:1;transform:translateX(0)}}.trae-browser-inspect-drag-trail{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999998}.trae-browser-inspect-drag-trail svg{width:100%;height:100%}.trae-browser-inspect-drag-trail .trae-drag-path{fill:none;stroke:var(--vscode-icube-colorSuccessHover, #2FB287);stroke-width:2;stroke-dasharray:8 4;opacity:.6;animation:trae-browser-inspect-dash 600ms linear forwards}.trae-browser-inspect-drag-trail .trae-drag-dot{fill:var(--vscode-icube-colorSuccessHover, #2FB287);filter:drop-shadow(0 0 4px rgba(47, 178, 135, 0.6))}.trae-browser-inspect-drag-trail .trae-drag-endpoint{fill:none;stroke:var(--vscode-icube-colorSuccessHover, #2FB287);stroke-width:2;opacity:.5}@keyframes trae-browser-inspect-dash{0%{stroke-dashoffset:200}100%{stroke-dashoffset:0}}.trae-browser-inspect-drag-trail.trae-drag-fade{animation:trae-browser-inspect-trail-fade 400ms ease-out forwards}@keyframes trae-browser-inspect-trail-fade{0%{opacity:1}100%{opacity:0}}</style><script type="module" data-trae-edit-ui="true">(async () => {
+  try {
+    const client = await import('/@vite/client');
+    const hmr = client.createHotContext('hmr-handler/fake.js');
+    hmr.on('vite:afterUpdate', window['__ICUBE_WEBVIEW_HMR_CALLBACK_1792208113338']);
+  } catch {}
+})();</script><style>.scrollbarContainer-NnjJ9T {
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+
+.shadowWrapper-gTrNks {
+  position: relative;
+}
+
+.shadowScrollContent-u7Gj1w {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.scrollbarContent-viblKM {
+  scrollbar-width: none;
+  flex-direction: column;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+}
+
+.scrollbarContent-viblKM.scrollX-pLYGVt:not(.scrollY-aHd6MU) {
+  flex-direction: row;
+}
+
+.scrollbarContent-viblKM::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbarContent-viblKM.scrollY-aHd6MU {
+  overflow-y: overlay;
+}
+
+@supports not (overflow-y: overlay) {
+  .scrollbarContent-viblKM.scrollY-aHd6MU {
+    overflow-y: auto;
+  }
+}
+
+.scrollbarContent-viblKM.scrollX-pLYGVt {
+  overflow-x: overlay;
+}
+
+@supports not (overflow-x: overlay) {
+  .scrollbarContent-viblKM.scrollX-pLYGVt {
+    overflow-x: auto;
+  }
+}
+
+.scrollbarTrack-Bfcxyx {
+  z-index: var(--custom-scrollbar-track-z-index, auto);
+  opacity: 0;
+  transition: opacity .2s;
+  position: absolute;
+}
+
+.scrollbarTrack-Bfcxyx.vertical-kDjYFh {
+  height: 100%;
+  top: 0;
+  right: 0;
+}
+
+.scrollbarTrack-Bfcxyx.horizontal-cgrfBM {
+  width: 100%;
+  bottom: 0;
+  left: 0;
+}
+
+.scrollbarTrack-Bfcxyx.visible-wPJzEH {
+  opacity: 1;
+}
+
+.scrollbarThumb-Yjg3_D {
+  background-color: var(--bg-bg-overlay-l3);
+  transition: background-color .2s;
+  position: absolute;
+}
+
+.scrollbarThumb-Yjg3_D:hover {
+  background-color: var(--bg-bg-overlay-l4);
+}
+
+.customScrollbar-t6D_3o {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color .2s;
+}
+
+.customScrollbar-t6D_3o::-webkit-scrollbar {
+  width: 4px;
+}
+
+.customScrollbar-t6D_3o::-webkit-scrollbar-track {
+  background: none;
+}
+
+.customScrollbar-t6D_3o::-webkit-scrollbar-thumb {
+  background-color: #0000;
+  border-radius: 4px;
+  transition: background-color .2s;
+}
+
+.scrollbarVisible-_1tMdm {
+  scrollbar-color: var(--bg-bg-overlay-l3) transparent;
+}
+
+.scrollbarVisible-_1tMdm::-webkit-scrollbar-thumb {
+  background-color: var(--bg-bg-overlay-l3);
+}
+
+.scrollbarVisible-_1tMdm::-webkit-scrollbar-thumb:hover {
+  background-color: var(--bg-bg-overlay-l4);
+}
+
+.shadowTop-GZm9XQ, .shadowBottom-IKOgcu {
+  pointer-events: none;
+  opacity: 0;
+  z-index: var(--z-local-overlay);
+  transition: opacity .15s;
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.shadowTop-GZm9XQ {
+  background: linear-gradient(180deg, var(--scroll-shadow-color, var(--bg-bg-base-default)) 0%, transparent 100%);
+  top: 0;
+}
+
+.shadowBottom-IKOgcu {
+  background: linear-gradient(0deg, var(--scroll-shadow-color, var(--bg-bg-base-default)) 0%, transparent 100%);
+  bottom: 0;
+}
+
+.shadowVisible-IExgHx {
+  opacity: 1;
+}
+
+</style><style>.trigger-RljaZJ {
+  display: contents;
+}
+
+.tooltip-SDUxnI {
+  z-index: var(--z-tooltip, 1300);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  white-space: normal;
+}
+
+.portal-eDqreK {
+  position: fixed;
+}
+
+.visible-Rkwtkd {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.container-BlbhO7 {
+  border-radius: var(--radius-6, 6px);
+  text-align: center;
+  justify-content: center;
+  align-items: center;
+  width: max-content;
+  padding: 6px 10px;
+  display: flex;
+  overflow-y: auto;
+}
+
+.text-fCfxTU {
+  font-family: var(--font-family-default);
+  word-break: break-word;
+  max-width: 100%;
+}
+
+.arrow-CgXpaQ {
+  position: absolute;
+  overflow: hidden;
+}
+
+.arrow-CgXpaQ svg {
+  display: block;
+}
+
+.normal-lQ5Fou .container-BlbhO7 {
+  background: var(--bg-bg-invert);
+  scrollbar-color: var(--scrollbar-thumb-invert, #fff3) var(--scrollbar-track-invert, #ffffff14);
+  border: none;
+  padding: 6px 10px;
+}
+
+.normal-lQ5Fou .container-BlbhO7::-webkit-scrollbar-track {
+  background-color: var(--scrollbar-track-invert, #ffffff14);
+}
+
+.normal-lQ5Fou .container-BlbhO7::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb-invert, #fff3);
+}
+
+.normal-lQ5Fou .container-BlbhO7::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover-invert, #ffffff4d);
+}
+
+.normal-lQ5Fou .text-fCfxTU {
+  letter-spacing: .039px;
+  color: var(--text-text-onaccent);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.normal-lQ5Fou .arrow-CgXpaQ, .normal-lQ5Fou .arrow-CgXpaQ svg {
+  width: 8px;
+  height: 4px;
+}
+
+.normal-lQ5Fou[data-side="top"] .arrow-CgXpaQ {
+  bottom: -3px;
+  left: calc(50% + var(--arrow-offset, 0px));
+  transform: translateX(-50%);
+}
+
+.normal-lQ5Fou[data-side="bottom"] .arrow-CgXpaQ {
+  top: -3px;
+  left: calc(50% + var(--arrow-offset, 0px));
+  transform: translateX(-50%)rotate(180deg);
+}
+
+.normal-lQ5Fou[data-side="left"] .arrow-CgXpaQ {
+  right: -5px;
+  top: calc(50% + var(--arrow-offset, 0px));
+  transform: translateY(-50%)rotate(-90deg);
+}
+
+.normal-lQ5Fou[data-side="right"] .arrow-CgXpaQ {
+  left: -5px;
+  top: calc(50% + var(--arrow-offset, 0px));
+  transform: translateY(-50%)rotate(90deg);
+}
+
+.mini-q0ypMR .container-BlbhO7 {
+  background: var(--bg-bg-tooltip);
+  border: 1px solid var(--border-border-neutral-l1);
+  box-shadow: var(--shadow-elevation-100-tooltip, 0px 2px 6px 0px #0003, 0px .5px 0px 0px #ffffff0f, inset 0px .5px 0px 0px #ffffff0f);
+}
+
+.mini-q0ypMR .text-fCfxTU {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-default);
+  color: var(--text-text-default);
+  line-height: 16px;
+}
+
+.mini-q0ypMR .arrow-CgXpaQ, .mini-q0ypMR .arrow-CgXpaQ svg {
+  width: 12px;
+  height: 7px;
+}
+
+.mini-q0ypMR[data-side="top"] .arrow-CgXpaQ {
+  bottom: -6px;
+  left: calc(50% + var(--arrow-offset, 0px));
+  transform: translateX(-50%);
+}
+
+.mini-q0ypMR[data-side="bottom"] .arrow-CgXpaQ {
+  top: -6px;
+  left: calc(50% + var(--arrow-offset, 0px));
+  transform: translateX(-50%)rotate(180deg);
+}
+
+.mini-q0ypMR[data-side="left"] .arrow-CgXpaQ {
+  right: -8.5px;
+  top: calc(50% + var(--arrow-offset, 0px));
+  transform: translateY(-50%)rotate(-90deg);
+}
+
+.mini-q0ypMR[data-side="right"] .arrow-CgXpaQ {
+  left: -8.5px;
+  top: calc(50% + var(--arrow-offset, 0px));
+  transform: translateY(-50%)rotate(90deg);
+}
+
+.alignLeft-fQZmyG .container-BlbhO7 {
+  text-align: left;
+  justify-content: flex-start;
+}
+
+.alignRight-0cUcce .container-BlbhO7 {
+  text-align: right;
+  justify-content: flex-end;
+}
+
+</style><style>.buttonsCard-bTXa5j {
+  padding: var(--spacer-4);
+  background: none;
+  align-items: center;
+  gap: 0;
+  display: inline-flex;
+}
+
+.actionButton-opZL8g {
+  align-items: center;
+  gap: var(--spacer-4);
+  padding: var(--spacer-4) var(--spacer-8);
+  border-radius: var(--radius-4);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+  background: none;
+  border: none;
+  display: inline-flex;
+}
+
+.actionButton-opZL8g:not(:disabled):hover {
+  background: var(--bg-bg-overlay-l2);
+}
+
+.actionButton-opZL8g:not(:disabled):active {
+  background: var(--bg-bg-overlay-l3);
+}
+
+.actionButton-opZL8g:focus-visible {
+  outline: 2px solid var(--status-primary-default);
+  outline-offset: 1px;
+}
+
+.actionButton-opZL8g:disabled {
+  cursor: not-allowed;
+  opacity: .4;
+}
+
+.sideChatTooltipTrigger-p03xXW {
+  display: inline-flex;
+}
+
+.icon-ObJEMt {
+  width: 16px;
+  height: 16px;
+  color: var(--icon-icon-default);
+  flex-shrink: 0;
+  justify-content: center;
+  align-items: center;
+  display: flex;
+}
+
+.title-GptGAg {
+  font-family: var(--font-family-default);
+  color: var(--text-text-default);
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.shortcut-nbwTG4 {
+  color: var(--icon-icon-secondary);
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  display: flex;
+}
+
+.shortcutKey-EE6xrE {
+  font-family: var(--font-family-default);
+  color: var(--icon-icon-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 12px;
+}
+
+.divider-cFGVKQ {
+  box-sizing: content-box;
+  background-clip: content-box;
+  background-color: var(--border-border-neutral-l2);
+  flex-shrink: 0;
+  width: 1px;
+  height: 12px;
+  padding: 0 6px;
+}
+
+</style><style>.commentEditorCard-Un4Xaa {
+  box-sizing: border-box;
+  width: 320px;
+  padding: var(--spacing-sm);
+  gap: var(--spacing-xs);
+  flex-direction: column;
+  display: flex;
+}
+
+.inputContainer-ObHdij {
+  align-items: center;
+  gap: var(--spacing-sm);
+  display: flex;
+}
+
+.textarea-ggj4j6 {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 0 var(--spacer-2);
+  font-family: var(--font-family-default);
+  font-size: var(--font-size-regular, 13px);
+  font-weight: var(--font-weight-default, 400);
+  color: var(--text-text-default);
+  resize: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-border-neutral-l2) transparent;
+  background: none;
+  border: none;
+  outline: none;
+  flex: 1;
+  max-height: 140px;
+  line-height: 20px;
+  overflow-y: auto;
+}
+
+.textarea-ggj4j6::placeholder {
+  color: var(--text-text-tertiary);
+}
+
+.actionBar-u_t8vc {
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+  display: flex;
+}
+
+.actionBar-u_t8vc .deleteButton-HP_HE1 {
+  color: var(--status-error-default);
+}
+
+.actionBar-u_t8vc .deleteButton-HP_HE1:hover:not(:disabled), .actionBar-u_t8vc .deleteButton-HP_HE1:active:not(:disabled) {
+  background: var(--status-error-surface-l1);
+  color: var(--status-error-default);
+}
+
+.actionBar-u_t8vc .submitButton-BqyEd7 {
+  background: var(--vscode-button-background, var(--bg-bg-invert));
+  color: var(--vscode-button-foreground, var(--icon-icon-onaccent));
+}
+
+.actionBar-u_t8vc .submitButton-BqyEd7:hover:not(:disabled), .actionBar-u_t8vc .submitButton-BqyEd7:active:not(:disabled) {
+  background: var(--vscode-button-hoverBackground, var(--bg-bg-invert-hover));
+}
+
+.actionBar-u_t8vc .submitButton-BqyEd7:disabled {
+  background: var(--vscode-button-background, var(--bg-bg-invert-disabled));
+  color: var(--vscode-button-foreground, var(--icon-icon-disabled));
+  opacity: .5;
+}
+
+.actionBar-u_t8vc .deleteButton-HP_HE1:focus-visible, .actionBar-u_t8vc .submitButton-BqyEd7:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder, var(--status-primary-default));
+  outline-offset: 1px;
+}
+
+.limitWarning-Hocj0v {
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--status-warning-default);
+  user-select: none;
+  display: flex;
+}
+
+.limitText-hBXEaq {
+  font-family: var(--font-family-default);
+  font-size: var(--font-size-md);
+  line-height: 18px;
+}
+
+</style><style>.iconButton-Q3VY7z {
+  border-radius: var(--radius-6, 4px);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+  border: none;
+  outline: none;
+  justify-content: center;
+  align-items: center;
+  display: inline-flex;
+}
+
+.icon-_l_X9w {
+  flex: none;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  display: flex;
+}
+
+.small-OBA1vF {
+  width: 20px;
+  height: 20px;
+  font-size: 14px;
+}
+
+.default-FjFsr_ {
+  width: 24px;
+  height: 24px;
+  font-size: 16px;
+}
+
+.large-DxPYCN {
+  width: 28px;
+  height: 28px;
+  font-size: 16px;
+}
+
+.xlarge-5fqXEB {
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+}
+
+.primary-jxayJO {
+  background: var(--bg-bg-invert);
+  color: var(--icon-icon-onaccent);
+}
+
+.primary-jxayJO:hover:not(:disabled) {
+  background: var(--bg-bg-invert-hover);
+}
+
+.primary-jxayJO:active:not(:disabled) {
+  background: var(--bg-bg-invert-active);
+}
+
+.primary-jxayJO:disabled {
+  background: var(--bg-bg-invert-disabled);
+  color: var(--icon-icon-disabled);
+  cursor: not-allowed;
+}
+
+.secondary-Joyuiv {
+  background: var(--bg-bg-overlay-l3);
+  color: var(--icon-icon-default);
+}
+
+.secondary-Joyuiv:hover:not(:disabled) {
+  background: var(--bg-bg-overlay-l4);
+}
+
+.secondary-Joyuiv:active:not(:disabled) {
+  background: var(--bg-bg-overlay-l2);
+}
+
+.secondary-Joyuiv:disabled {
+  background: var(--bg-bg-overlay-l1);
+  color: var(--icon-icon-disabled);
+  cursor: not-allowed;
+}
+
+.tertiary-kDbrxb {
+  color: var(--icon-icon-default);
+  background: none;
+}
+
+.tertiary-kDbrxb:hover:not(:disabled) {
+  background: var(--bg-bg-overlay-l2);
+  color: var(--icon-icon-default-hover);
+}
+
+.tertiary-kDbrxb:active:not(:disabled) {
+  background: var(--bg-bg-overlay-l1);
+  color: var(--icon-icon-default-active);
+}
+
+.tertiary-kDbrxb:disabled {
+  color: var(--icon-icon-disabled);
+  cursor: not-allowed;
+}
+
+.quaternary-UxO71r {
+  color: var(--icon-icon-tertiary);
+  background: none;
+}
+
+.quaternary-UxO71r:hover:not(:disabled), .quaternary-UxO71r:active:not(:disabled) {
+  color: var(--icon-icon-secondary-hover);
+  background: none;
+}
+
+.quaternary-UxO71r:disabled {
+  color: var(--icon-icon-disabled);
+  cursor: not-allowed;
+}
+
+</style><style>.previewCommentCardContainer-HEkpU8 {
+  border-radius: var(--radius-8);
+  background: var(--bg-bg-menu);
+  border: 1px solid var(--border-border-neutral-l1);
+  transition: width .25s cubic-bezier(.4, 0, .2, 1), height .25s cubic-bezier(.4, 0, .2, 1);
+  display: inline-block;
+  overflow: hidden;
+  box-shadow: 0 2px 6px #0003, 0 .5px #ffffff0f, inset 0 .5px #ffffff0f;
+}
+
+.previewCommentCardContent-ELaLah {
+  width: max-content;
+  position: relative;
+}
+
+.previewCommentCardFadeEnter-OMhMD9 {
+  opacity: 0;
+}
+
+.previewCommentCardFadeEnterActive-Eacuvn {
+  opacity: 1;
+  transition: opacity .2s ease-in;
+}
+
+.previewCommentCardFadeExit-ms9vgc {
+  opacity: 1;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.previewCommentCardFadeExitActive-vyQTsd {
+  opacity: 0;
+  transition: opacity .15s ease-out;
+}
+
+.previewCommentCardSuccessCard-PWnm2o {
+  white-space: nowrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  display: flex;
+}
+
+.previewCommentCardSuccessIcon-Oht9Ir {
+  width: 16px;
+  height: 16px;
+  color: var(--status-success-default);
+  justify-content: center;
+  align-items: center;
+  display: flex;
+}
+
+.previewCommentCardSuccessText-s40BWG {
+  font-family: var(--font-family-default);
+  color: var(--text-text-default);
+  user-select: none;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+</style></head>
+<body>
+<div id="app">
+    <div class="lobby">
+      <div class="logo-cards" data-trae-ref="e0">
+        <div class="logo-card" style="background:#FF595E">U</div>
+        <div class="logo-card" style="background:#FFCA3A;color:#5D4037">N</div>
+        <div class="logo-card" style="background:#8AC926">O</div>
+        <div class="logo-card" style="background:#1982C4">★</div>
+      </div>
+      <h1 data-trae-ref="e1">UNO 派对</h1>
+      <p>和朋友一起玩 UNO 卡牌</p>
+      <input class="input" id="nameInput" placeholder="输入你的昵称" maxlength="12" value="" data-trae-ref="e2">
+      <button class="btn btn-primary" id="createBtn" style="width:320px;margin-bottom:12px" data-trae-ref="e3">创建房间</button>
+      <div style="display:flex;gap:8px;width:320px">
+        <input class="input" id="roomInput" placeholder="输入房间号" style="flex:1;margin-bottom:0" data-trae-ref="e4">
+        <button class="btn btn-secondary" id="joinBtn" data-trae-ref="e5">加入</button>
+      </div>
+      <p class="lobby-hint" data-trae-ref="e6">P2P 直连 · 无需注册 · 房主创建房间后把房间号发给好友</p>
+    </div></div>
+<script>
+// ========== 卡牌定义 ==========
+const COLORS = ['red', 'yellow', 'green', 'blue'];
+const CARD_TYPE = { NUMBER:'number', SKIP:'skip', REVERSE:'reverse', DRAW2:'draw2', WILD:'wild', WILD4:'wild4' };
+const CARD_SYMBOL = { skip:'⊘', reverse:'⇄', draw2:'+2', wild:'★', wild4:'+4' };
+const COLOR_HEX = { red:'#FF595E', yellow:'#FFCA3A', green:'#8AC926', blue:'#1982C4', wild:'#6A4C93' };
+
+function createDeck() {
+  const deck = []; let id = 0;
+  for (const color of COLORS) {
+    deck.push({id:id++, color, type:CARD_TYPE.NUMBER, value:'0'});
+    for (let n=1;n<=9;n++){ deck.push({id:id++,color,type:CARD_TYPE.NUMBER,value:String(n)}); deck.push({id:id++,color,type:CARD_TYPE.NUMBER,value:String(n)}); }
+    for (const t of [CARD_TYPE.SKIP,CARD_TYPE.REVERSE,CARD_TYPE.DRAW2]){ deck.push({id:id++,color,type:t,value:CARD_SYMBOL[t]}); deck.push({id:id++,color,type:t,value:CARD_SYMBOL[t]}); }
+  }
+  for (let i=0;i<4;i++){ deck.push({id:id++,color:'wild',type:CARD_TYPE.WILD,value:CARD_SYMBOL.wild}); deck.push({id:id++,color:'wild',type:CARD_TYPE.WILD4,value:CARD_SYMBOL.wild4}); }
+  return deck;
+}
+function shuffle(deck){ const a=[...deck]; for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+
+// ========== 规则 ==========
+function canPlay(card, topCard, activeColor, drawStack=0){
+  if(drawStack>0){
+    if(topCard.type===CARD_TYPE.DRAW2) return card.type===CARD_TYPE.DRAW2;
+    if(topCard.type===CARD_TYPE.WILD4) return card.type===CARD_TYPE.WILD4;
+  }
+  if(card.type===CARD_TYPE.WILD||card.type===CARD_TYPE.WILD4) return true;
+  if(card.color===activeColor) return true;
+  if(card.type===CARD_TYPE.NUMBER&&topCard.type===CARD_TYPE.NUMBER&&card.value===topCard.value) return true;
+  if(card.type!==CARD_TYPE.NUMBER&&card.type===topCard.type) return true;
+  return false;
+}
+function getCardEffect(card){
+  switch(card.type){
+    case CARD_TYPE.SKIP: return {skipNext:true,reverseDirection:false,drawCount:0};
+    case CARD_TYPE.REVERSE: return {skipNext:false,reverseDirection:true,drawCount:0};
+    case CARD_TYPE.DRAW2: return {skipNext:true,reverseDirection:false,drawCount:2};
+    case CARD_TYPE.WILD4: return {skipNext:true,reverseDirection:false,drawCount:4};
+    default: return {skipNext:false,reverseDirection:false,drawCount:0};
+  }
+}
+
+// ========== UnoGame ==========
+class UnoGame {
+  constructor(){ this.reset(); }
+  reset(){
+    this.phase='waiting'; this.drawPile=[]; this.discardPile=[]; this.players=[];
+    this.dealerIndex=0; this.currentPlayerIndex=0; this.direction=1; this.activeColor=null;
+    this.drawStack=0; this.pendingWildColor=null; this.winner=null; this.lastAction=null;
+    this.unoCallTimers=new Map();
+  }
+  start(players){
+    this.reset();
+    this.players=players.map(p=>({id:p.id,name:p.name,hand:[],hasCalledUno:false,isOnline:true}));
+    this.drawPile=shuffle(createDeck());
+    for(let i=0;i<7;i++) for(const p of this.players) p.hand.push(this.drawPile.pop());
+    let first=this.drawPile.pop();
+    while(first.type===CARD_TYPE.WILD4){ this.drawPile.unshift(first); first=this.drawPile.pop(); }
+    this.discardPile.push(first);
+    this.activeColor=first.color==='wild'?COLORS[Math.floor(Math.random()*4)]:first.color;
+    const effect=getCardEffect(first);
+    this.direction=effect.reverseDirection?-1:1;
+    if(effect.drawCount>0) this.drawStack=effect.drawCount;
+    this.dealerIndex=0; this.currentPlayerIndex=this.nextIndex(this.dealerIndex);
+    if(effect.skipNext) this.currentPlayerIndex=this.nextIndex(this.currentPlayerIndex);
+    this.phase='playing'; this.lastAction={type:'start',card:first,timestamp:Date.now()};
+  }
+  playCard(playerId, cardIndex, chosenColor){
+    const player=this.players.find(p=>p.id===playerId);
+    if(!player) return {ok:false,error:'player_not_found'};
+    const idx=this.players.indexOf(player);
+    if(idx!==this.currentPlayerIndex) return {ok:false,error:'not_your_turn'};
+    if(this.phase!=='playing') return {ok:false,error:'game_not_playing'};
+    if(this.pendingWildColor&&playerId===this.players[this.currentPlayerIndex].id) return {ok:false,error:'must_choose_color'};
+    const card=player.hand[cardIndex];
+    if(!card) return {ok:false,error:'invalid_card'};
+    const topCard=this.discardPile[this.discardPile.length-1];
+    if(!canPlay(card,topCard,this.activeColor,this.drawStack)) return {ok:false,error:'cannot_play_card'};
+    if(card.type===CARD_TYPE.WILD||card.type===CARD_TYPE.WILD4){
+      if(!chosenColor||!COLORS.includes(chosenColor)) return {ok:false,error:'need_color'};
+    }
+    const events=[];
+    player.hand.splice(cardIndex,1);
+    this.discardPile.push(card);
+    this.clearUnoTimer(playerId); player.hasCalledUno=false;
+    const effect=getCardEffect(card);
+    if(card.type===CARD_TYPE.WILD||card.type===CARD_TYPE.WILD4) this.activeColor=chosenColor;
+    else this.activeColor=card.color;
+    if(effect.drawCount>0) this.drawStack+=effect.drawCount;
+    events.push({type:'card_played',playerId,card,chosenColor:(card.type===CARD_TYPE.WILD||card.type===CARD_TYPE.WILD4)?chosenColor:null,timestamp:Date.now()});
+    this.lastAction={type:'play',playerId,card,timestamp:Date.now()};
+    if(player.hand.length===0){ this.phase='finished'; this.winner=playerId; this.clearAllUnoTimers(); events.push({type:'game_over',winner:playerId}); return {ok:true,events}; }
+    if(player.hand.length===1) this.startUnoTimer(playerId);
+    this.advanceTurn(effect.skipNext);
+    return {ok:true,events};
+  }
+  drawCard(playerId){
+    const player=this.players.find(p=>p.id===playerId);
+    if(!player) return {ok:false,error:'player_not_found'};
+    const idx=this.players.indexOf(player);
+    if(idx!==this.currentPlayerIndex) return {ok:false,error:'not_your_turn'};
+    if(this.phase!=='playing') return {ok:false,error:'game_not_playing'};
+    if(this.pendingWildColor) return {ok:false,error:'must_choose_color'};
+    const topCard=this.discardPile[this.discardPile.length-1];
+    const events=[];
+    this.ensureDrawPile();
+    let drawCount=1; let forcedDraw=false;
+    if(this.drawStack>0){ drawCount=this.drawStack; forcedDraw=true; }
+    const drawn=[];
+    for(let i=0;i<drawCount;i++){ this.ensureDrawPile(); if(this.drawPile.length===0) break; drawn.push(this.drawPile.pop()); }
+    player.hand.push(...drawn);
+    if(forcedDraw){
+      this.drawStack=0;
+      events.push({type:'draw_cards',playerId,count:drawCount,forced:true,timestamp:Date.now()});
+      this.lastAction={type:'draw',playerId,count:drawCount,timestamp:Date.now()};
+      this.advanceTurn(true);
+      return {ok:true,drawnCards:drawn,forcedDraw:true,events};
+    }
+    events.push({type:'draw_card',playerId,count:1,timestamp:Date.now()});
+    this.lastAction={type:'draw',playerId,count:1,timestamp:Date.now()};
+    const canPlayDrawn=drawn[0]&&canPlay(drawn[0],topCard,this.activeColor,0);
+    return {ok:true,drawnCards:drawn,canPlayDrawn,forcedDraw:false,events};
+  }
+  passTurn(playerId){
+    const player=this.players.find(p=>p.id===playerId);
+    if(!player) return {ok:false,error:'player_not_found'};
+    const idx=this.players.indexOf(player);
+    if(idx!==this.currentPlayerIndex) return {ok:false,error:'not_your_turn'};
+    this.advanceTurn(false);
+    return {ok:true,events:[{type:'pass',playerId,timestamp:Date.now()}]};
+  }
+  callUno(playerId){
+    const player=this.players.find(p=>p.id===playerId);
+    if(!player) return {ok:false,error:'player_not_found'};
+    if(player.hand.length!==1) return {ok:false,error:'not_one_card'};
+    player.hasCalledUno=true; this.clearUnoTimer(playerId);
+    return {ok:true,events:[{type:'uno_called',playerId,timestamp:Date.now()}]};
+  }
+  catchUno(targetPlayerId, byPlayerId){
+    const target=this.players.find(p=>p.id===targetPlayerId);
+    if(!target) return {ok:false,error:'player_not_found'};
+    if(target.hand.length!==1) return {ok:false,error:'not_one_card'};
+    if(target.hasCalledUno) return {ok:false,error:'already_called'};
+    this.ensureDrawPile();
+    const penalty=[];
+    for(let i=0;i<2;i++){ this.ensureDrawPile(); if(this.drawPile.length===0) break; penalty.push(this.drawPile.pop()); }
+    target.hand.push(...penalty);
+    this.clearUnoTimer(targetPlayerId);
+    return {ok:true,events:[{type:'uno_caught',targetPlayerId,byPlayerId,penaltyCount:penalty.length,timestamp:Date.now()}]};
+  }
+  chooseColor(playerId, color){
+    if(!COLORS.includes(color)) return {ok:false,error:'invalid_color'};
+    const player=this.players.find(p=>p.id===playerId);
+    if(!player) return {ok:false,error:'player_not_found'};
+    if(!this.pendingWildColor) return {ok:false,error:'no_pending_color'};
+    if(this.players[this.currentPlayerIndex].id!==playerId) return {ok:false,error:'not_your_turn'};
+    this.activeColor=color; this.pendingWildColor=null;
+    return {ok:true,events:[{type:'color_chosen',playerId,color,timestamp:Date.now()}]};
+  }
+  advanceTurn(skipNext){ if(skipNext) this.currentPlayerIndex=this.nextIndex(this.currentPlayerIndex); this.currentPlayerIndex=this.nextIndex(this.currentPlayerIndex); }
+  nextIndex(idx){ return (idx+this.direction+this.players.length)%this.players.length; }
+  ensureDrawPile(){
+    if(this.drawPile.length>0) return;
+    if(this.discardPile.length<=1) return;
+    const top=this.discardPile.pop();
+    this.drawPile=shuffle(this.discardPile).map(c=>(c.type===CARD_TYPE.WILD||c.type===CARD_TYPE.WILD4?{...c,color:'wild'}:c));
+    this.discardPile=[top];
+  }
+  startUnoTimer(playerId){
+    this.clearUnoTimer(playerId);
+    const timer=setTimeout(()=>{
+      const player=this.players.find(p=>p.id===playerId);
+      if(player&&player.hand.length===1&&!player.hasCalledUno){
+        this.ensureDrawPile();
+        for(let i=0;i<2;i++){ this.ensureDrawPile(); if(this.drawPile.length===0) break; player.hand.push(this.drawPile.pop()); }
+      }
+      this.unoCallTimers.delete(playerId);
+    }, 5000);
+    this.unoCallTimers.set(playerId, timer);
+  }
+  clearUnoTimer(playerId){ const t=this.unoCallTimers.get(playerId); if(t){ clearTimeout(t); this.unoCallTimers.delete(playerId); } }
+  clearAllUnoTimers(){ for(const t of this.unoCallTimers.values()) clearTimeout(t); this.unoCallTimers.clear(); }
+  snapshot(viewerId){
+    const topCard=this.discardPile[this.discardPile.length-1]||null;
+    return {
+      phase:this.phase, currentPlayerId:this.players[this.currentPlayerIndex]?.id||null,
+      direction:this.direction, activeColor:this.activeColor, drawPileCount:this.drawPile.length,
+      discardPileCount:this.discardPile.length, discardTop:topCard, drawStack:this.drawStack,
+      pendingWildColor:this.pendingWildColor, winner:this.winner, lastAction:this.lastAction,
+      players:this.players.map(p=>({id:p.id,name:p.name,handCount:p.hand.length,hasCalledUno:p.hasCalledUno,isOnline:p.isOnline,hand:viewerId===p.id?p.hand:undefined}))
+    };
+  }
+}
+
+// ========== P2P 主机逻辑 ==========
+class Host {
+  constructor(peer, name){
+    this.peer=peer; this.name=name; this.playerId='host';
+    this.connections=new Map(); // conn -> {id, name, ready}
+    this.game=new UnoGame();
+    this.playerList=[{id:'host',name,ready:false,isHost:true}];
+    this.roomId=peer.id;
+    this.gamePhase='waiting';
+    peer.on('connection', conn=>this.onConnection(conn));
+  }
+  onConnection(conn){
+    conn.on('open', ()=>{
+      conn.on('data', data=>this.onData(conn, data));
+      conn.on('close', ()=>this.onDisconnect(conn));
+      conn.on('error', ()=>this.onDisconnect(conn));
+    });
+  }
+  onData(conn, data){
+    const p=this.connections.get(conn);
+    if(data.type==='join'){
+      const pid='p_'+Math.random().toString(36).slice(2,8);
+      this.connections.set(conn,{id:pid,name:data.name,ready:false});
+      this.playerList.push({id:pid,name:data.name,ready:false,isHost:false});
+      conn.send({type:'joined',playerId:pid,roomId:this.roomId});
+      this.broadcastRoomState();
+    } else if(p){
+      if(data.type==='ready'){ p.ready=!p.ready; const pl=this.playerList.find(x=>x.id===p.id); if(pl) pl.ready=p.ready; this.broadcastRoomState(); }
+      else if(data.type==='start_game'&&p.id==='host'){ this.startGame(); }
+      else if(data.type==='play_card'){ const r=this.game.playCard(p.id,data.cardIndex,data.chosenColor); if(r.ok) this.broadcastGameState(); else conn.send({type:'error',message:r.error}); }
+      else if(data.type==='draw_card'){ const r=this.game.drawCard(p.id); if(r.ok) this.broadcastGameState(); else conn.send({type:'error',message:r.error}); }
+      else if(data.type==='pass'){ const r=this.game.passTurn(p.id); if(r.ok) this.broadcastGameState(); else conn.send({type:'error',message:r.error}); }
+      else if(data.type==='call_uno'){ const r=this.game.callUno(p.id); if(r.ok) this.broadcastGameState(); else conn.send({type:'error',message:r.error}); }
+      else if(data.type==='catch_uno'){ const r=this.game.catchUno(data.targetId,p.id); if(r.ok) this.broadcastGameState(); else conn.send({type:'error',message:r.error}); }
+      else if(data.type==='choose_color'){ const r=this.game.chooseColor(p.id,data.color); if(r.ok) this.broadcastGameState(); else conn.send({type:'error',message:r.error}); }
+      else if(data.type==='leave'){ this.removePlayer(p.id,conn); }
+    }
+  }
+  onDisconnect(conn){
+    const p=this.connections.get(conn);
+    if(p){ this.removePlayer(p.id,conn); }
+  }
+  removePlayer(pid,conn){
+    this.connections.delete(conn);
+    this.playerList=this.playerList.filter(x=>x.id!==pid);
+    this.broadcastRoomState();
+  }
+  startGame(){
+    if(this.playerList.length<2){ return; }
+    this.gamePhase='playing';
+    this.game.start(this.playerList.map(p=>({id:p.id,name:p.name})));
+    this.broadcastRoomState();
+    this.broadcastGameState();
+  }
+  broadcastRoomState(){
+    const msg={type:'room_state',roomId:this.roomId,hostId:'host',players:this.playerList,gamePhase:this.gamePhase};
+    for(const [conn] of this.connections) conn.send(msg);
+    if(window.__hostCallback) window.__hostCallback(msg);
+  }
+  broadcastGameState(){
+    for(const [conn,p] of this.connections){
+      conn.send({type:'game_state',snapshot:this.game.snapshot(p.id)});
+    }
+    if(window.__hostCallback) window.__hostCallback({type:'game_state',snapshot:this.game.snapshot('host')});
+  }
+  hostAction(action){
+    // 房主自己的操作
+    if(action.type==='start_game'){ this.startGame(); }
+    else if(action.type==='play_card'){ const r=this.game.playCard('host',action.cardIndex,action.chosenColor); if(r.ok) this.broadcastGameState(); }
+    else if(action.type==='draw_card'){ const r=this.game.drawCard('host'); if(r.ok) this.broadcastGameState(); }
+    else if(action.type==='pass'){ const r=this.game.passTurn('host'); if(r.ok) this.broadcastGameState(); }
+    else if(action.type==='call_uno'){ const r=this.game.callUno('host'); if(r.ok) this.broadcastGameState(); }
+    else if(action.type==='catch_uno'){ const r=this.game.catchUno(action.targetId,'host'); if(r.ok) this.broadcastGameState(); }
+    else if(action.type==='choose_color'){ const r=this.game.chooseColor('host',action.color); if(r.ok) this.broadcastGameState(); }
+    else if(action.type==='ready'){ const pl=this.playerList.find(x=>x.id==='host'); if(pl){pl.ready=!pl.ready; this.broadcastRoomState();} }
+  }
+}
+
+// ========== P2P 玩家逻辑 ==========
+class Player {
+  constructor(peer, roomId, name){
+    this.peer=peer; this.roomId=roomId; this.name=name; this.playerId=null;
+    this.conn=peer.connect(roomId,{reliable:true});
+    this.conn.on('open', ()=>{ this.conn.send({type:'join',name}); });
+    this.conn.on('data', data=>{ if(window.__playerCallback) window.__playerCallback(data); });
+    this.conn.on('close', ()=>{ if(window.__playerCallback) window.__playerCallback({type:'disconnected'}); });
+    this.conn.on('error', ()=>{ if(window.__playerCallback) window.__playerCallback({type:'disconnected'}); });
+  }
+  send(data){ this.conn.send(data); }
+}
+
+// ========== UI 状态 ==========
+let screen='lobby';
+let peer=null, host=null, player=null;
+let myId=null, myName='';
+let currentSnapshot=null;
+let roomState=null;
+
+const app=document.getElementById('app');
+
+function toast(msg){
+  const t=document.createElement('div'); t.className='toast'; t.textContent=msg;
+  document.body.appendChild(t); setTimeout(()=>t.remove(),2000);
+}
+
+function render(){
+  if(screen==='lobby') renderLobby();
+  else if(screen==='room') renderRoom();
+  else if(screen==='game') renderGame();
+}
+
+function renderLobby(){
+  app.innerHTML=`
+    <div class="lobby">
+      <div class="logo-cards">
+        <div class="logo-card" style="background:#FF595E">U</div>
+        <div class="logo-card" style="background:#FFCA3A;color:#5D4037">N</div>
+        <div class="logo-card" style="background:#8AC926">O</div>
+        <div class="logo-card" style="background:#1982C4">★</div>
+      </div>
+      <h1>UNO 派对</h1>
+      <p>和朋友一起玩 UNO 卡牌</p>
+      <input class="input" id="nameInput" placeholder="输入你的昵称" maxlength="12" value="${myName||''}">
+      <button class="btn btn-primary" id="createBtn" style="width:320px;margin-bottom:12px">创建房间</button>
+      <div style="display:flex;gap:8px;width:320px">
+        <input class="input" id="roomInput" placeholder="输入房间号" style="flex:1;margin-bottom:0">
+        <button class="btn btn-secondary" id="joinBtn">加入</button>
+      </div>
+      <p class="lobby-hint">P2P 直连 · 无需注册 · 房主创建房间后把房间号发给好友</p>
+    </div>`;
+  document.getElementById('createBtn').onclick=createRoom;
+  document.getElementById('joinBtn').onclick=joinRoom;
+}
+
+// 生成 4-6 位短房间号
+function genRoomId(){
+  return String(Math.floor(10000 + Math.random()*90000));
+}
+
+function createRoom(){
+  myName=document.getElementById('nameInput').value.trim()||'玩家'+Math.floor(Math.random()*1000);
+  const roomId=genRoomId();
+  app.innerHTML=`<div class="lobby"><p>正在创建房间 ${roomId}...</p></div>`;
+  const peerConfig={host:'peerjs-server.onrender.com',port:443,path:'/',secure:true,debug:2};
+  peer=new Peer(roomId, peerConfig);
+  peer.on('open', id=>{
+    host=new Host(peer, myName);
+    myId='host';
+    window.__hostCallback=onHostMessage;
+    host.broadcastRoomState();
+    screen='room';
+    render();
+  });
+  peer.on('error', err=>{
+    if(err.type==='unavailable-id'){
+      // 房间号被占用，重试
+      createRoom();
+    } else {
+      toast('创建失败: '+err.type+'，请重试');
+      screen='lobby';
+      render();
+    }
+  });
+}
+
+function joinRoom(){
+  myName=document.getElementById('nameInput').value.trim()||'玩家'+Math.floor(Math.random()*1000);
+  const roomId=document.getElementById('roomInput').value.trim();
+  if(!roomId){ toast('请输入房间号'); return; }
+  app.innerHTML=`<div class="lobby"><p>正在连接房间 ${roomId}...</p></div>`;
+  const peerConfig={host:'peerjs-server.onrender.com',port:443,path:'/',secure:true,debug:2};
+  peer=new Peer(peerConfig);
+  peer.on('open', ()=>{
+    player=new Player(peer, roomId, myName);
+    window.__playerCallback=onPlayerMessage;
+    // 超时检测
+    setTimeout(()=>{
+      if(screen!=='room' && screen!=='game'){
+        toast('连接超时，请检查房间号是否正确');
+        screen='lobby';
+        render();
+      }
+    }, 10000);
+  });
+  peer.on('error', err=>{ toast('连接失败: '+err.type); screen='lobby'; render(); });
+}
+
+function onHostMessage(msg){
+  if(msg.type==='room_state'){ roomState=msg; if(screen==='room') render(); }
+  else if(msg.type==='game_state'){ currentSnapshot=msg.snapshot; screen='game'; render(); }
+}
+
+function onPlayerMessage(msg){
+  if(msg.type==='joined'){ myId=msg.playerId; screen='room'; render(); }
+  else if(msg.type==='room_state'){ roomState=msg; if(screen==='room') render(); }
+  else if(msg.type==='game_state'){ currentSnapshot=msg.snapshot; screen='game'; render(); }
+  else if(msg.type==='error'){ toast(msg.message); }
+  else if(msg.type==='disconnected'){ toast('与房主断开连接'); screen='lobby'; render(); }
+}
+
+function renderRoom(){
+  const players=roomState?.players||[];
+  const isHost=myId==='host';
+  const allReady=players.length>=2&&players.every(p=>p.ready);
+  app.innerHTML=`
+    <button class="back-btn" id="backBtn">← 退出</button>
+    <div class="conn-status online">● 已连接</div>
+    <div class="room">
+      <div class="room-header">
+        <div class="room-id-label">房间号（发给好友）</div>
+        <div class="room-id" id="roomIdDisplay">${roomState?.roomId||''}</div>
+        <button class="btn btn-secondary" id="copyBtn" style="margin-top:10px;padding:6px 16px;font-size:13px">复制房间号</button>
+      </div>
+      <div class="player-list">
+        ${players.map(p=>`
+          <div class="player-item">
+            <span class="name">${p.name}${p.isHost?' 👑':''}</span>
+            <span class="tag ${p.isHost?'tag-host':(p.ready?'tag-ready':'tag-wait')}">${p.isHost?'房主':(p.ready?'已准备':'未准备')}</span>
+          </div>
+        `).join('')}
+      </div>
+      <div class="room-actions">
+        ${isHost
+          ? `<button class="btn btn-primary" id="startBtn" ${allReady?'':'disabled'}>开始游戏 (${players.filter(p=>p.ready).length}/${players.length})</button>`
+          : `<button class="btn btn-primary" id="readyBtn">${players.find(p=>p.id===myId)?.ready?'取消准备':'准备'}</button>`
+        }
+      </div>
+    </div>`;
+  document.getElementById('backBtn').onclick=leaveRoom;
+  document.getElementById('copyBtn').onclick=()=>{ navigator.clipboard?.writeText(roomState.roomId); toast('房间号已复制'); };
+  if(isHost){ document.getElementById('startBtn').onclick=()=>host.hostAction({type:'start_game'}); }
+  else { document.getElementById('readyBtn').onclick=()=>player.send({type:'ready'}); }
+}
+
+function leaveRoom(){
+  if(host){ peer.destroy(); host=null; }
+  if(player){ player.send({type:'leave'}); peer.destroy(); player=null; }
+  screen='lobby'; render();
+}
+
+function renderGame(){
+  const snap=currentSnapshot;
+  if(!snap) return;
+  const me=snap.players.find(p=>p.id===myId);
+  const myHand=me?.hand||[];
+  const opponents=snap.players.filter(p=>p.id!==myId);
+  const topCard=snap.discardTop;
+  const isMyTurn=snap.currentPlayerId===myId;
+  const showColorPicker=snap.pendingWildColor&&isMyTurn;
+
+  app.innerHTML=`
+    <button class="back-btn" id="backBtn">← 退出</button>
+    <div class="game">
+      <div class="opponents">
+        ${opponents.map(p=>`
+          <div class="opponent ${snap.currentPlayerId===p.id?'active':''}">
+            ${p.hasCalledUno?'<div class="uno-badge">UNO!</div>':''}
+            <div class="name">${p.name}</div>
+            <div class="count">${p.handCount}</div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="turn-indicator ${isMyTurn?'my-turn':''}">${isMyTurn?'🎯 轮到你了':'等待 '+snap.players.find(p=>p.id===snap.currentPlayerId)?.name}</div>
+      <div class="center-area">
+        <div class="piles">
+          <div class="pile">
+            <div class="card-back">UNO</div>
+            <div class="pile-label">抽牌堆 ${snap.drawPileCount}</div>
+          </div>
+          <div class="pile discard-pile">
+            ${snap.drawStack>0?`<div class="draw-stack-badge">+${snap.drawStack}</div>`:''}
+            ${topCard?`<div class="card ${topCard.color}" style="width:56px;height:78px;font-size:22px">${topCard.value}</div>`:'<div class="card-back" style="opacity:.3"></div>'}
+            <div class="pile-label">弃牌堆</div>
+          </div>
+          <div class="pile">
+            <div class="color-indicator" style="background:${COLOR_HEX[snap.activeColor]||'#ccc'}"></div>
+            <div class="pile-label">当前颜色</div>
+          </div>
+        </div>
+      </div>
+      <div class="my-hand" id="myHand">
+        ${myHand.map((c,i)=>{
+          const playable=isMyTurn&&canPlay(c,topCard,snap.activeColor,snap.drawStack);
+          return `<div class="card ${c.color} ${playable?'playable':'unplayable'}" data-idx="${i}">${c.value}</div>`;
+        }).join('')}
+      </div>
+      <div class="game-actions">
+        <button class="action-btn" id="drawBtn" ${isMyTurn&&!snap.pendingWildColor?'':'disabled'}>抽牌</button>
+        <button class="action-btn" id="passBtn" ${isMyTurn&&!snap.pendingWildColor?'':'disabled'}>过牌</button>
+        <button class="action-btn uno" id="unoBtn" ${me&&me.handCount===1?'':'disabled'}>喊 UNO!</button>
+      </div>
+    </div>
+    ${showColorPicker?`
+      <div class="color-picker">
+        <div class="color-picker-inner">
+          ${COLORS.map(c=>`<div class="color-btn" style="background:${COLOR_HEX[c]}" data-color="${c}"></div>`).join('')}
+        </div>
+      </div>`:''}
+    ${snap.winner?`
+      <div class="winner-overlay">
+        <h2>🏆 ${snap.players.find(p=>p.id===snap.winner)?.name} 获胜!</h2>
+        <button class="btn btn-primary" id="backToLobby">返回大厅</button>
+      </div>`:''}
+  `;
+  document.getElementById('backBtn').onclick=leaveRoom;
+  if(snap.winner){ document.getElementById('backToLobby').onclick=leaveRoom; return; }
+
+  // 手牌点击
+  document.querySelectorAll('.card[data-idx]').forEach(el=>{
+    el.onclick=()=>{
+      const idx=parseInt(el.dataset.idx);
+      const card=myHand[idx];
+      if(!isMyTurn) return;
+      if(!canPlay(card,topCard,snap.activeColor,snap.drawStack)){ toast('这张牌不能出'); return; }
+      if(card.type===CARD_TYPE.WILD||card.type===CARD_TYPE.WILD4){
+        showColorPickerForCard(idx);
+      } else {
+        sendAction({type:'play_card',cardIndex:idx});
+      }
+    };
+  });
+  document.getElementById('drawBtn').onclick=()=>sendAction({type:'draw_card'});
+  document.getElementById('passBtn').onclick=()=>sendAction({type:'pass'});
+  document.getElementById('unoBtn').onclick=()=>sendAction({type:'call_uno'});
+  if(showColorPicker){
+    document.querySelectorAll('.color-btn').forEach(el=>{
+      el.onclick=()=>sendAction({type:'choose_color',color:el.dataset.color});
+    });
+  }
+}
+
+function showColorPickerForCard(cardIndex){
+  const picker=document.createElement('div');
+  picker.className='color-picker';
+  picker.innerHTML=`<div class="color-picker-inner">${COLORS.map(c=>`<div class="color-btn" style="background:${COLOR_HEX[c]}" data-color="${c}"></div>`).join('')}</div>`;
+  document.body.appendChild(picker);
+  picker.querySelectorAll('.color-btn').forEach(el=>{
+    el.onclick=()=>{ picker.remove(); sendAction({type:'play_card',cardIndex,chosenColor:el.dataset.color}); };
+  });
+}
+
+function sendAction(action){
+  if(host) host.hostAction(action);
+  else if(player) player.send(action);
+}
+
+// 启动
+render();
+</script>
+
+
+<div data-trae-edit-ui="true" class="dark"><div class="trae-browser-inspect-highlight-tag"></div><div class="trae-browser-inspect-highlight-tag"></div><div class="trae-browser-inspect-highlight-box"></div><div class="trae-browser-inspect-highlight-box trae-browser-inspect-select-highlight-box" style="cursor: grab; pointer-events: auto;"></div><div class="trae-browser-inspect-overlay" style="display: none;"></div><div class="trae-browser-inspect-comment-card-container"></div><div class="trae-browser-inspect-drop-indicator" style="position: fixed; pointer-events: none; z-index: 999999; display: none; background: linear-gradient(90deg, rgb(0, 102, 255), rgb(0, 170, 255)); box-shadow: rgba(0, 102, 255, 0.4) 0px 0px 4px 1px, rgba(0, 102, 255, 0.3) 0px 0px 8px 2px, rgba(0, 102, 255, 0.2) 0px 0px 12px 3px; transition: transform 0.15s, width 0.15s, height 0.15s;"></div></div><div data-trae-edit-ui="true" class="trae-browser-inspect-operation dark"></div></body></html>
